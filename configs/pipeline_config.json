@@ -1,0 +1,34 @@
+{
+    "project_name": "NLNG Predictive Maintenance",
+    "pipeline_name": "Predictive Maintenance Pipeline 2.0",
+    "paths": {
+        "raw_data": "D:/Data_Workspace/Capstone_Project/NLGN_PLC_Predictive_Analystic/data/01_raw/NLNG_Dirty_Data.csv",
+        "output_root": "data/04_corrected_pipeline",
+        "stage1": "stage_1_audit_eda",
+        "stage2": "stage_2_cleaning",
+        "stage3": "stage_3_ml",
+        "stage4": "stage_4_deep_learning",
+        "stage5": "stage_5_explainability",
+        "stage6": "stage_6_comparison"
+    },
+    "targets": {
+        "classification": "failure_within_24h",
+        "regression": "rul_days"
+    },
+    "validation": {
+        "train_ratio": 0.64,
+        "validation_ratio": 0.16,
+        "test_ratio": 0.2,
+        "random_seed": 42
+    },
+    "deep_learning": {
+        "epochs": 8,
+        "batch_size": 512,
+        "sequence_length": 12,
+        "sampling_minutes": 30
+    },
+    "shap": {
+        "sample_size": 5000,
+        "top_n": 15
+    }
+}

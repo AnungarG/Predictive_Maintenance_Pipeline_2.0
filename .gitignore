@@ -1,0 +1,9 @@
+data/ 
+*.parquet 
+*.csv 
+*.pkl 
+*.keras 
+*.joblib 
+__pycache__/ 
+.venv/ 
+.env 
