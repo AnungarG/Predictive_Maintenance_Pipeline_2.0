@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 import joblib
 import urllib.request
 from pathlib import Path
+import gdown
 
 # =============================================================================
 # CONFIGURATION
@@ -71,16 +72,34 @@ DASHBOARD_COLUMNS = [
 # =============================================================================
 # DATA AND MODEL LOADING
 # =============================================================================
-
 @st.cache_data(show_spinner="Loading dataset...")
 def load_data():
-    url = "data/NLNG_cleaned_leakage_controlled.parquet"
-    df = pd.read_parquet(url)
-    
-    # Filter to contract columns if present
-    available_cols = [col for col in DASHBOARD_COLUMNS if col in df.columns]
-    df = df[available_cols].copy()
+    data_dir = "data"
+    os.makedirs(data_dir, exist_ok=True)
 
+    file_path = os.path.join(
+        data_dir,
+        "NLNG_cleaned_leakage_controlled.parquet"
+    )
+
+    google_drive_file_id = "1glib_3N3PuvQtnvr8s8NN-MGITLLjcZ"
+
+    if not os.path.exists(file_path):
+        with st.spinner("Downloading NLNG dataset from Google Drive..."):
+            gdown.download(
+                id=google_drive_file_id,
+                output=file_path,
+                quiet=False
+            )
+
+    df = pd.read_parquet(file_path)
+
+    available_cols = [
+        col for col in DASHBOARD_COLUMNS
+        if col in df.columns
+    ]
+
+    df = df[available_cols].copy()
     df["timestamp"] = pd.to_datetime(
         df["timestamp"],
         errors="coerce"
@@ -89,30 +108,6 @@ def load_data():
     return df.sort_values(
         ["equipment_id", "timestamp"]
     )
-
-
-@st.cache_resource
-def load_models():
-    return True
-
-
-@st.cache_data
-def load_shap_data():
-    if not os.path.exists(SHAP_PATH):
-        return pd.DataFrame()
-    return pd.read_csv(SHAP_PATH)
-
-
-# Initialize Dataset and Models
-try:
-    df = load_data()
-    load_models()
-except Exception as exc:
-    st.error(f"Unable to load resources:\n\n{exc}")
-    st.stop()
-
-shap_df = load_shap_data()
-
 
 # =============================================================================
 # API FUNCTIONS
