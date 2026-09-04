@@ -1,4 +1,3 @@
-
 import os
 
 import joblib
@@ -7,7 +6,11 @@ import pandas as pd
 import tensorflow as tf
 
 
-BASE_DIR = os.path.dirname(
+# =============================================================================
+# PROJECT PATHS
+# =============================================================================
+
+BACKEND_DIR = os.path.dirname(
     os.path.dirname(
         os.path.abspath(__file__)
     )
@@ -15,51 +18,54 @@ BASE_DIR = os.path.dirname(
 
 PROJECT_ROOT = os.path.dirname(
     os.path.dirname(
-        BASE_DIR
+        BACKEND_DIR
     )
 )
 
-MODELS_DIR = os.path.join(
+DATA_DIR = os.path.join(
     PROJECT_ROOT,
-    "models"
+    "data"
 )
 
-CLASSIFICATION_DIR = os.path.join(
-    MODELS_DIR,
-    "classification"
+STAGE_3_DIR = os.path.join(
+    DATA_DIR,
+    "stage_3_machine_learning"
 )
 
-REGRESSION_DIR = os.path.join(
-    MODELS_DIR,
-    "regression"
+STAGE_4_DIR = os.path.join(
+    DATA_DIR,
+    "stage_4_deep_learning"
 )
 
-PREPROCESSING_DIR = os.path.join(
-    MODELS_DIR,
-    "preprocessing"
-)
 
+# =============================================================================
+# MODEL ARTIFACT PATHS
+# =============================================================================
 
 MLP_MODEL_PATH = os.path.join(
-    CLASSIFICATION_DIR,
+    STAGE_4_DIR,
     "dl_classifier_mlp.keras"
 )
 
 MLP_IMPUTER_PATH = os.path.join(
-    PREPROCESSING_DIR,
+    STAGE_4_DIR,
     "dl_feature_imputer.pkl"
 )
 
 MLP_SCALER_PATH = os.path.join(
-    PREPROCESSING_DIR,
+    STAGE_4_DIR,
     "dl_feature_scaler.pkl"
 )
 
 GB_REGRESSOR_PATH = os.path.join(
-    REGRESSION_DIR,
+    STAGE_3_DIR,
     "gradient_boosting_regressor.pkl"
 )
 
+
+# =============================================================================
+# FEATURE CONTRACT
+# =============================================================================
 
 FEATURE_COLUMNS = [
     "commission_year",
@@ -86,6 +92,10 @@ FEATURE_COLUMNS = [
 ]
 
 
+# =============================================================================
+# MODEL SERVICE
+# =============================================================================
+
 class ModelService:
 
     def __init__(self):
@@ -98,8 +108,36 @@ class ModelService:
 
         self.load_models()
 
+    # -------------------------------------------------------------------------
+    # LOAD MODELS
+    # -------------------------------------------------------------------------
 
     def load_models(self):
+
+        required_files = [
+            MLP_MODEL_PATH,
+            MLP_IMPUTER_PATH,
+            MLP_SCALER_PATH,
+            GB_REGRESSOR_PATH
+        ]
+
+        missing_files = [
+            path
+            for path in required_files
+            if not os.path.exists(path)
+        ]
+
+        if missing_files:
+
+            missing_text = "\n".join(
+                f" - {path}"
+                for path in missing_files
+            )
+
+            raise FileNotFoundError(
+                "Required model artifacts are missing:\n"
+                + missing_text
+            )
 
         self.classifier = tf.keras.models.load_model(
             MLP_MODEL_PATH,
@@ -120,6 +158,9 @@ class ModelService:
 
         self.loaded = True
 
+    # -------------------------------------------------------------------------
+    # FEATURE VALIDATION
+    # -------------------------------------------------------------------------
 
     def validate_features(self, data):
 
@@ -136,6 +177,9 @@ class ModelService:
                 + ", ".join(missing)
             )
 
+    # -------------------------------------------------------------------------
+    # CLASSIFICATION INPUT
+    # -------------------------------------------------------------------------
 
     def prepare_classifier_input(self, data):
 
@@ -149,7 +193,9 @@ class ModelService:
             columns=FEATURE_COLUMNS
         )
 
-        X_imputed = self.feature_imputer.transform(X)
+        X_imputed = self.feature_imputer.transform(
+            X
+        )
 
         X_scaled = self.feature_scaler.transform(
             X_imputed
@@ -159,6 +205,9 @@ class ModelService:
             np.float32
         )
 
+    # -------------------------------------------------------------------------
+    # FAILURE PREDICTION
+    # -------------------------------------------------------------------------
 
     def predict_failure(self, data):
 
@@ -198,6 +247,9 @@ class ModelService:
             "failure_risk": risk_level
         }
 
+    # -------------------------------------------------------------------------
+    # RUL PREDICTION
+    # -------------------------------------------------------------------------
 
     def predict_rul(self, data):
 
@@ -226,6 +278,9 @@ class ModelService:
             "rul_days": prediction
         }
 
+    # -------------------------------------------------------------------------
+    # COMBINED PREDICTION
+    # -------------------------------------------------------------------------
 
     def predict(self, data):
 
@@ -246,5 +301,9 @@ class ModelService:
                 "Gradient Boosting Regressor"
         }
 
+
+# =============================================================================
+# SINGLE MODEL SERVICE INSTANCE
+# =============================================================================
 
 model_service = ModelService()

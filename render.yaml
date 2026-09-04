@@ -2,8 +2,6 @@ services:
   - type: web
     name: nlng-predictive-maintenance-api
     env: python
+    rootDir: idss/backend
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn idss.api.main:app --host 0.0.0.0 --port $PORT
-    envVars:
-      - key: PYTHONPATH
-        value: .
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
