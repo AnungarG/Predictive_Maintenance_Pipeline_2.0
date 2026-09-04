@@ -1,0 +1,4 @@
+Model,Task,Validation_RMSE_Days,Validation_R2,Holdout_RMSE_Days,Holdout_R2,Source,Sequence_Length,History_Hours
+Gradient Boosting Regressor,Regression,64.52190670744393,-0.1514019973529574,83.7851821811236,-2.898822826336598,Classical ML,,
+Random Forest Regressor,Regression,69.2353793658957,-0.3257717025558944,100.5404610895021,-4.614108589973072,Classical ML,,
+LSTM Regressor,Regression,,,69.31121434222423,-1.6692209243774414,Deep Learning,12.0,6.0

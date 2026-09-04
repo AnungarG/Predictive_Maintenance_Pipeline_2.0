@@ -1,0 +1,6 @@
+variable,present
+failure_within_72h,True
+failure_within_7d,True
+rul_days,True
+rul_censored,True
+failure_rate,True

@@ -1,0 +1,16 @@
+Feature,Mean_Absolute_SHAP
+vibration,0.0689103899286215
+overall_vibration,0.0656605870900203
+oil_particles_ppm,0.0371690612385536
+lubrication_health_index,0.0292008688694568
+oil_pressure,0.0278126361786085
+production_efficiency,0.0276810444652567
+cumulative_op_hours,0.0270253066376697
+wear_level,0.0260359171507145
+hours_since_maint,0.0255573310562326
+bearing_index,0.0230120449245712
+bearing_temperature,0.0204414960538351
+discharge_pressure,0.0194745713490904
+asset_age_years,0.0188719095510124
+motor_current,0.0156164344082574
+feed_gas_pressure,0.0148665652418064

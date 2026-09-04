@@ -1,0 +1,11 @@
+{
+    "feature_count": 21,
+    "sequence_length": 12,
+    "history_hours": 6.0,
+    "preprocessing": "train-only median imputation and StandardScaler",
+    "dtype": "float32",
+    "models": [
+        "Deep Learning MLP",
+        "LSTM Regressor"
+    ]
+}

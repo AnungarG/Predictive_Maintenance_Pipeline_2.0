@@ -1,0 +1,2 @@
+Model,Task,Holdout_RMSE_Days,Holdout_R2,Sequence_Length,History_Hours
+LSTM Regressor,Regression,69.31121434222423,-1.6692209243774414,12,6.0

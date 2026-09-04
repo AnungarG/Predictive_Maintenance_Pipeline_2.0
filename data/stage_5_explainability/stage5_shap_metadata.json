@@ -1,0 +1,6 @@
+{
+    "model": "Random Forest Classifier",
+    "sample_size": 5000,
+    "original_feature_count": 21,
+    "explained_feature_count": 35
+}

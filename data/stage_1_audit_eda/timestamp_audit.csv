@@ -1,0 +1,5 @@
+metric,value
+invalid_or_missing_timestamps,0
+minimum_timestamp,2023-01-01 00:00:00
+maximum_timestamp,2025-12-31 23:30:00
+unique_timestamps,58087

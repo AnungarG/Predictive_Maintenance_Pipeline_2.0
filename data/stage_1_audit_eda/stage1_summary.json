@@ -1,0 +1,9 @@
+{
+    "rows": 2746558,
+    "columns": 39,
+    "exact_duplicates": 13,
+    "equipment_timestamp_duplicates": 5462,
+    "missing_value_columns": 13,
+    "equipment_assets": 52,
+    "trains": 4
+}

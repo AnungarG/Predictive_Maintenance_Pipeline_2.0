@@ -1,0 +1,12 @@
+variable,lower_bound,upper_bound,converted_to_nan
+load_factor,0,1.0,75133
+wear_level,0,1.0,0
+lubrication_health_index,0,100.0,0
+oil_pressure,0,,70303
+oil_particles_ppm,0,,35190
+overall_vibration,0,,74819
+vibration,0,,68734
+rpm,0,,67211
+hours_since_maint,0,,6606
+cumulative_op_hours,0,,0
+rul_days,0,,0

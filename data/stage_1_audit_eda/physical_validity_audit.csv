@@ -1,0 +1,12 @@
+variable,lower_bound,upper_bound,invalid_count,invalid_pct
+load_factor,0,1.0,75304,2.7417589579393553
+wear_level,0,1.0,0,0.0
+lubrication_health_index,0,100.0,0,0.0
+oil_pressure,0,,70431,2.564336890027445
+oil_particles_ppm,0,,35273,1.2842619744421928
+overall_vibration,0,,74945,2.7286880524642116
+vibration,0,,68861,2.5071744343283484
+rpm,0,,67323,2.4511770732677047
+hours_since_maint,0,,6621,0.24106536253740135
+cumulative_op_hours,0,,0,0.0
+rul_days,0,,0,0.0

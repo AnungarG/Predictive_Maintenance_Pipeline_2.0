@@ -1,9 +1,77 @@
-data/ 
-*.parquet 
-*.csv 
-*.pkl 
-*.keras 
-*.joblib 
-__pycache__/ 
-.venv/ 
-.env 
+# ============================================================
+# LARGE NLNG DATASETS
+# ============================================================
+
+data/stage_2_cleaning/NLNG_cleaned_leakage_controlled.csv
+data/stage_2_cleaning/NLNG_cleaned_leakage_controlled.parquet
+
+data/stage_2_cleaning/train_raw_partition.csv
+data/stage_2_cleaning/train_raw_partition.parquet
+
+data/stage_2_cleaning/validation_raw_partition.csv
+data/stage_2_cleaning/validation_raw_partition.parquet
+
+data/stage_2_cleaning/test_raw_partition.csv
+data/stage_2_cleaning/test_raw_partition.parquet
+
+
+# ============================================================
+# JUPYTER TEMPORARY FILES
+# ============================================================
+
+.ipynb_checkpoints/
+notebooks/.ipynb_checkpoints/
+
+
+# ============================================================
+# LARGE ARCHIVES
+# ============================================================
+
+*.zip
+*.7z
+*.rar
+
+
+# ============================================================
+# PYTHON
+# ============================================================
+
+__pycache__/
+*.py[cod]
+*.pyo
+
+venv/
+.venv/
+env/
+
+
+# ============================================================
+# SECRETS
+# ============================================================
+
+.env
+.streamlit/secrets.toml
+
+
+# ============================================================
+# LOGS
+# ============================================================
+
+*.log
+
+
+# ============================================================
+# TEMPORARY FILES
+# ============================================================
+
+*.tmp
+*.temp
+.DS_Store
+Thumbs.db
+# ============================================================
+# LARGE TRAINED MODEL ARTIFACTS
+# ============================================================
+
+data/stage_3_machine_learning/random_forest_regressor.pkl
+data/stage_3_machine_learning/random_forest_classifier.pkl
+

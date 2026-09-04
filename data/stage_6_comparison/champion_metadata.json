@@ -1,0 +1,15 @@
+{
+    "classification_champion": {
+        "model_name": "Deep Learning MLP",
+        "approach": "Deep Learning",
+        "validation_pr_auc": 0.2860332017641567,
+        "holdout_pr_auc": 0.2676871186187343,
+        "holdout_roc_auc": 0.948719172369424
+    },
+    "regression_champion": {
+        "model_name": "Gradient Boosting Regressor",
+        "validation_rmse_days": 64.52190670744393,
+        "holdout_rmse_days": 83.7851821811236,
+        "holdout_r2": -2.898822826336598
+    }
+}
