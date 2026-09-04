@@ -27,7 +27,7 @@ SHAP_PATH = os.path.join(
     "shap_feature_importance.csv"
 )
 
-API_URL = "http://127.0.0.1:8000"
+API_URL = st.secrets.get("API_URL", "http://127.0.0.1:8000")
 
 
 # =============================================================================
@@ -75,7 +75,7 @@ DASHBOARD_COLUMNS = [
 
 @st.cache_data(show_spinner="Loading dataset...")
 def load_data():
-    url = "https://github.com/golfsong707/Predictive_Maintenance/releases/download/v1.0.0/NLNG_cleaned_leakage_controlled.parquet"
+    url = "data/NLNG_cleaned_leakage_controlled.parquet"
     df = pd.read_parquet(url)
     
     # Filter to contract columns if present
@@ -92,19 +92,9 @@ def load_data():
     )
 
 
-@st.cache_resource(show_spinner="Loading models...")
+@st.cache_resource
 def load_models():
-    gb_classifier = joblib.load("data/04_corrected_pipeline/stage_3_ml/gradient_boosting_classifier.pkl")
-    rf_classifier = joblib.load("data/04_corrected_pipeline/stage_3_ml/random_forest_classifier.pkl")
-    dl_lstm = tf.keras.models.load_model("data/04_corrected_pipeline/stage_4_deep_learning/dl_regressor_lstm.keras")
-    
-    rf_reg_path = Path("random_forest_regressor.pkl")
-    if not rf_reg_path.exists():
-        url = "https://github.com/golfsong707/Predictive_Maintenance/releases/download/v1.0.0/random_forest_regressor.pkl"
-        urllib.request.urlretrieve(url, rf_reg_path)
-    rf_regressor = joblib.load(rf_reg_path)
-    
-    return gb_classifier, rf_classifier, dl_lstm, rf_regressor
+    return True
 
 
 @st.cache_data
@@ -117,7 +107,7 @@ def load_shap_data():
 # Initialize Dataset and Models
 try:
     df = load_data()
-    gb_clf, rf_clf, dl_model, rf_reg = load_models()
+    load_models()
 except Exception as exc:
     st.error(f"Unable to load resources:\n\n{exc}")
     st.stop()
