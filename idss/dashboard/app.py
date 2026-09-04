@@ -174,7 +174,7 @@ else:
 
 st.sidebar.divider()
 
-trains = sorted(df["train"].dropna().unique())
+trains = sorted(df["train"].dropna().unique()) if "train" in df.columns else []
 selected_train = st.sidebar.selectbox("LNG Train", trains)
 
 train_df = df[df["train"] == selected_train]
