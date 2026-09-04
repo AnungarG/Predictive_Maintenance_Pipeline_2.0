@@ -1,4 +1,4 @@
-```python
+python
 import os
 import requests
 import pandas as pd
@@ -933,4 +933,3 @@ st.caption(
     "NLNG Predictive Maintenance IDSS | "
     "Streamlit → FastAPI → Pipeline 2.0 Models"
 )
-```
