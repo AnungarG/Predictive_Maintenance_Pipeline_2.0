@@ -1044,15 +1044,13 @@ with st.sidebar.expander(
     )
 
     st.write(
-        f"Equipment: "
-        f"{df['equipment_id'].nunique():,}"
+        f"Equipment: {df['equipment_id'].nunique():,}"
     )
 
     if "train" in df.columns:
 
         st.write(
-            f"Trains: "
-            f"{df['train'].nunique():,}"
+            f"Trains: {df['train'].nunique():,}"
         )
 
     st.write(
@@ -1064,12 +1062,14 @@ with st.sidebar.expander(
         f"{df['timestamp'].max()}"
     )
 
-    st.write(
-        f"Dataset size: "
-        f"{os.path.getsize(file_path) / "
-        "(1024 * 1024):.1f} MB"
+    dataset_size_mb = (
+        os.path.getsize(file_path)
+        / (1024 * 1024)
     )
 
+    st.write(
+        f"Dataset size: {dataset_size_mb:.1f} MB"
+    )
 
 # ============================================================
 # FOOTER
