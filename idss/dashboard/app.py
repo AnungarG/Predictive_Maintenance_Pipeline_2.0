@@ -6,6 +6,7 @@ import streamlit as st
 import plotly.graph_objects as go
 import gdown
 
+
 # ============================================================
 # PAGE CONFIGURATION
 # ============================================================
@@ -16,6 +17,7 @@ st.set_page_config(
     layout="wide"
 )
 
+
 # ============================================================
 # CONFIGURATION
 # ============================================================
@@ -25,11 +27,19 @@ API_URL = st.secrets.get(
     "http://127.0.0.1:8000"
 )
 
+DATA_DIR = "data"
+
+DATASET_PATH = os.path.join(
+    DATA_DIR,
+    "NLNG_cleaned_leakage_controlled.parquet"
+)
+
 SHAP_PATH = (
     "data/04_corrected_pipeline/"
     "stage_5_explainability/"
     "shap_feature_importance.csv"
 )
+
 
 # ============================================================
 # MODEL FEATURES
@@ -59,6 +69,7 @@ FEATURE_COLUMNS = [
     "quality_factor"
 ]
 
+
 # ============================================================
 # DASHBOARD COLUMNS
 # ============================================================
@@ -81,13 +92,8 @@ DASHBOARD_COLUMNS = [
 @st.cache_data(show_spinner="Loading NLNG dataset...")
 def load_data():
 
-    data_dir = "data"
-    os.makedirs(data_dir, exist_ok=True)
-
-    file_path = os.path.join(
-        data_dir,
-        "NLNG_cleaned_leakage_controlled.parquet"
-    )
+    # Make sure the local data directory exists
+    os.makedirs(DATA_DIR, exist_ok=True)
 
     # --------------------------------------------------------
     # GOOGLE DRIVE FILE
@@ -103,10 +109,10 @@ def load_data():
     )
 
     # --------------------------------------------------------
-    # DOWNLOAD ONLY IF FILE DOES NOT EXIST
+    # DOWNLOAD DATASET ONLY IF IT DOES NOT EXIST
     # --------------------------------------------------------
 
-    if not os.path.exists(file_path):
+    if not os.path.exists(DATASET_PATH):
 
         st.info(
             "NLNG dataset is not available locally. "
@@ -117,54 +123,61 @@ def load_data():
 
             downloaded_file = gdown.download(
                 url=google_drive_url,
-                output=file_path,
+                output=DATASET_PATH,
                 quiet=False
             )
 
             # ------------------------------------------------
-            # CHECK 1 — DOWNLOAD RESULT
+            # CHECK 1: DOWNLOAD RESULT
             # ------------------------------------------------
 
             if downloaded_file is None:
+
                 raise RuntimeError(
                     "Google Drive did not return the dataset."
                 )
 
             # ------------------------------------------------
-            # CHECK 2 — FILE EXISTS
+            # CHECK 2: FILE EXISTS
             # ------------------------------------------------
 
-            if not os.path.exists(file_path):
+            if not os.path.exists(DATASET_PATH):
+
                 raise RuntimeError(
                     "The download completed without creating "
                     "the expected Parquet file."
                 )
 
             # ------------------------------------------------
-            # CHECK 3 — FILE SIZE
+            # CHECK 3: FILE SIZE
             # ------------------------------------------------
 
-            file_size = os.path.getsize(file_path)
+            file_size = os.path.getsize(DATASET_PATH)
 
             if file_size == 0:
 
-                os.remove(file_path)
+                os.remove(DATASET_PATH)
 
                 raise RuntimeError(
                     "Google Drive returned an empty file."
                 )
 
             # ------------------------------------------------
-            # CHECK 4 — DETECT HTML RESPONSE
+            # CHECK 4: DETECT HTML RESPONSE
             # ------------------------------------------------
 
-            with open(file_path, "rb") as f:
-                file_header = f.read(500).lower()
+            with open(
+                DATASET_PATH,
+                "rb"
+            ) as f:
+
+                file_header = f.read(1000).lower()
 
             html_signatures = [
                 b"<html",
                 b"<!doctype",
                 b"<head",
+                b"<body",
                 b"google drive"
             ]
 
@@ -173,28 +186,28 @@ def load_data():
                 for signature in html_signatures
             ):
 
-                os.remove(file_path)
+                os.remove(DATASET_PATH)
 
                 raise RuntimeError(
                     "Google Drive returned an HTML page "
-                    "instead of the Parquet dataset. "
-                    "The file may be unavailable for "
-                    "direct download."
+                    "instead of the Parquet dataset."
                 )
 
             # ------------------------------------------------
-            # CHECK 5 — VALIDATE PARQUET
+            # CHECK 5: VALIDATE PARQUET
             # ------------------------------------------------
 
             try:
 
                 test_df = pd.read_parquet(
-                    file_path
+                    DATASET_PATH
                 )
 
                 if test_df.empty:
 
-                    os.remove(file_path)
+                    del test_df
+
+                    os.remove(DATASET_PATH)
 
                     raise RuntimeError(
                         "The downloaded Parquet file "
@@ -205,13 +218,18 @@ def load_data():
 
             except Exception as parquet_error:
 
-                if os.path.exists(file_path):
-                    os.remove(file_path)
+                if os.path.exists(DATASET_PATH):
+
+                    os.remove(DATASET_PATH)
 
                 raise RuntimeError(
                     "The downloaded file is not a valid "
                     "Parquet dataset."
                 ) from parquet_error
+
+            # ------------------------------------------------
+            # SUCCESS MESSAGE
+            # ------------------------------------------------
 
             st.success(
                 "NLNG dataset downloaded successfully "
@@ -220,10 +238,11 @@ def load_data():
 
         except Exception as e:
 
-            if os.path.exists(file_path):
+            # Remove incomplete/invalid download
+            if os.path.exists(DATASET_PATH):
 
                 try:
-                    os.remove(file_path)
+                    os.remove(DATASET_PATH)
                 except Exception:
                     pass
 
@@ -238,24 +257,28 @@ def load_data():
             )
 
             st.info(
-                "Please verify that the Google Drive file "
-                "is shared as 'Anyone with the link → Viewer' "
-                "and that it is available for download."
+                "The Google Drive file should be shared as "
+                "'Anyone with the link → Viewer'. "
+                "If that permission is already correct, "
+                "the issue may be related to Google Drive's "
+                "download mechanism or file quota."
             )
 
             st.stop()
 
     # --------------------------------------------------------
-    # FILE ALREADY EXISTS
+    # DATASET ALREADY EXISTS LOCALLY
     # --------------------------------------------------------
 
     else:
 
-        file_size = os.path.getsize(file_path)
+        file_size = os.path.getsize(
+            DATASET_PATH
+        )
 
         if file_size == 0:
 
-            os.remove(file_path)
+            os.remove(DATASET_PATH)
 
             st.error(
                 "The local NLNG dataset file is empty."
@@ -270,7 +293,7 @@ def load_data():
     try:
 
         df = pd.read_parquet(
-            file_path
+            DATASET_PATH
         )
 
     except Exception as e:
@@ -397,6 +420,7 @@ def load_data():
 def load_shap():
 
     if not os.path.exists(SHAP_PATH):
+
         return None
 
     try:
@@ -449,9 +473,10 @@ st.sidebar.header(
     "Equipment Selection"
 )
 
-# ------------------------------------------------------------
+
+# ============================================================
 # TRAIN SELECTION
-# ------------------------------------------------------------
+# ============================================================
 
 if "train" in df.columns:
 
@@ -480,9 +505,9 @@ else:
     train_df = df.copy()
 
 
-# ------------------------------------------------------------
+# ============================================================
 # EQUIPMENT SELECTION
-# ------------------------------------------------------------
+# ============================================================
 
 equipment_list = sorted(
     train_df["equipment_id"]
@@ -540,7 +565,10 @@ st.subheader(
     "Equipment Information"
 )
 
-info_col1, info_col2, info_col3, info_col4 = st.columns(4)
+info_col1, info_col2, info_col3, info_col4 = (
+    st.columns(4)
+)
+
 
 with info_col1:
 
@@ -548,6 +576,7 @@ with info_col1:
         "Equipment ID",
         selected_equipment
     )
+
 
 with info_col2:
 
@@ -563,6 +592,7 @@ with info_col2:
             str(value)
         )
 
+
 with info_col3:
 
     if "equipment_type" in equipment_df.columns:
@@ -576,6 +606,7 @@ with info_col3:
             "Equipment Type",
             str(value)
         )
+
 
 with info_col4:
 
@@ -606,6 +637,7 @@ try:
     )
 
     if health_response.status_code == 200:
+
         api_status = "Online"
 
 except Exception:
@@ -630,7 +662,10 @@ try:
     }
 
     if selected_train is not None:
-        prediction_payload["train"] = selected_train
+
+        prediction_payload["train"] = (
+            selected_train
+        )
 
     # --------------------------------------------------------
     # ADD MODEL FEATURES
@@ -643,11 +678,16 @@ try:
             value = latest_row[feature]
 
             if pd.isna(value):
+
                 value = 0
 
             prediction_payload[feature] = float(
                 value
             )
+
+    # --------------------------------------------------------
+    # SEND REQUEST TO FASTAPI
+    # --------------------------------------------------------
 
     response = requests.post(
         f"{API_URL}/predict",
@@ -713,11 +753,16 @@ if prediction is not None:
             )
 
             if failure_probability <= 1:
+
                 risk_percentage = (
                     failure_probability * 100
                 )
+
             else:
-                risk_percentage = failure_probability
+
+                risk_percentage = (
+                    failure_probability
+                )
 
             with prediction_col1:
 
@@ -734,6 +779,15 @@ if prediction is not None:
                     "Failure Risk",
                     "N/A"
                 )
+
+    else:
+
+        with prediction_col1:
+
+            st.metric(
+                "Failure Risk",
+                "N/A"
+            )
 
     # --------------------------------------------------------
     # RUL
@@ -806,6 +860,7 @@ available_trend_features = [
     if feature in equipment_df.columns
 ]
 
+
 for feature in available_trend_features:
 
     fig = go.Figure()
@@ -864,6 +919,7 @@ if prediction is not None:
             )
 
             if probability <= 1:
+
                 probability *= 100
 
             probability = max(
@@ -903,6 +959,7 @@ if prediction is not None:
             )
 
         except Exception:
+
             pass
 
 
@@ -916,6 +973,7 @@ st.subheader(
 
 model_col1, model_col2 = st.columns(2)
 
+
 with model_col1:
 
     st.write(
@@ -926,6 +984,7 @@ with model_col1:
     st.write(
         "**Primary Model:** Random Forest"
     )
+
 
 with model_col2:
 
@@ -987,6 +1046,7 @@ if prediction is not None:
             )
 
             if probability <= 1:
+
                 probability *= 100
 
             if probability >= 70:
@@ -1044,7 +1104,8 @@ with st.sidebar.expander(
     )
 
     st.write(
-        f"Equipment: {df['equipment_id'].nunique():,}"
+        f"Equipment: "
+        f"{df['equipment_id'].nunique():,}"
     )
 
     if "train" in df.columns:
@@ -1062,14 +1123,16 @@ with st.sidebar.expander(
         f"{df['timestamp'].max()}"
     )
 
+    # Dataset size
     dataset_size_mb = (
-        os.path.getsize(file_path)
+        os.path.getsize(DATASET_PATH)
         / (1024 * 1024)
     )
 
     st.write(
         f"Dataset size: {dataset_size_mb:.1f} MB"
     )
+
 
 # ============================================================
 # FOOTER
@@ -1081,3 +1144,5 @@ st.caption(
     "NLNG Predictive Maintenance Analytics | "
     "Equipment Failure Prediction and "
     "Maintenance Decision Support"
+)
+
