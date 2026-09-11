@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 import streamlit as st
 import plotly.graph_objects as go
+import pyarrow.parquet as pq
 import joblib
 from pathlib import Path
 
@@ -88,10 +89,8 @@ SHAP_PATH = os.path.join(
     "shap_feature_importance.csv"
 )
 
-
 WORKER_URL, _ = get_cloudflare_config()
 API_URL = get_api_url()
-
 
 # =============================================================================
 # AUTHORITATIVE FEATURE CONTRACT
@@ -133,14 +132,27 @@ DASHBOARD_COLUMNS = [
 
 
 # =============================================================================
-# DATA AND MODEL LOADING
+# OPTIMIZED DATA AND MODEL LOADING (PREVENTS STREAMLIT MEMORY CRASH)
 # =============================================================================
 
-@st.cache_data(show_spinner="Downloading & loading dataset from Cloudflare R2...")
+@st.cache_data(show_spinner="Streaming & filtering dataset from Cloudflare R2...")
 def load_data():
     try:
         dataset_bytes = fetch_dataset_bytes()
-        df = pd.read_parquet(io.BytesIO(dataset_bytes))
+        buffer = io.BytesIO(dataset_bytes)
+        
+        # Open Parquet file without loading all unneeded bytes to RAM
+        parquet_file = pq.ParquetFile(buffer)
+        available_cols = [c for c in DASHBOARD_COLUMNS if c in parquet_file.schema.names]
+        
+        # Read only contract schema columns
+        table = parquet_file.read(columns=available_cols)
+        df = table.to_pandas()
+        
+        # Downcast float64 to float32 to halve memory usage
+        float_cols = df.select_dtypes(include=['float64']).columns
+        df[float_cols] = df[float_cols].astype('float32')
+        
     except Exception as e:
         local_path = "data/NLNG_cleaned_leakage_controlled.parquet"
         if os.path.exists(local_path):
@@ -148,9 +160,6 @@ def load_data():
             df = pd.read_parquet(local_path)
         else:
             raise e
-
-    available_cols = [col for col in DASHBOARD_COLUMNS if col in df.columns]
-    df = df[available_cols].copy()
 
     df["timestamp"] = pd.to_datetime(
         df["timestamp"],
