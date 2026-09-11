@@ -84,11 +84,10 @@ st.markdown("""
 
 
 SHAP_PATH = os.path.join(
-    "data",
-    "04_corrected_pipeline",
-    "stage_5_explainability",
+    os.path.dirname(__file__),
     "shap_feature_importance.csv"
 )
+
 
 WORKER_URL, _ = get_cloudflare_config()
 API_URL = get_api_url()
