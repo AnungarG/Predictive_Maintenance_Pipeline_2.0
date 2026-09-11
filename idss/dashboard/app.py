@@ -6,8 +6,6 @@ import numpy as np
 import streamlit as st
 import plotly.graph_objects as go
 import pyarrow.parquet as pq
-import joblib
-from pathlib import Path
 
 # Import Worker & API Client
 from worker_client import (
@@ -15,7 +13,6 @@ from worker_client import (
     get_api_url,
     check_worker_health,
     fetch_dataset_bytes,
-    fetch_model_bytes
 )
 
 # =============================================================================
@@ -35,18 +32,14 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-    /* Main Background */
     .stApp {
         background-color: #0E1117;
     }
-    
-    /* Executive Metric Card Styling */
     div[data-testid="stMetricValue"] {
         font-size: 26px !important;
         font-weight: 700 !important;
         color: #00D4FF !important;
     }
-    
     div[data-testid="metric-container"] {
         background-color: #1E222D;
         border: 1px solid #2A2E3D;
@@ -54,31 +47,8 @@ st.markdown("""
         padding: 14px;
         box-shadow: 0 4px 8px rgba(0, 0, 0, 0.25);
     }
-    
-    /* Native Container Card Borders */
     [data-testid="stVerticalBlock"] > div[data-testid="stBlock"] {
         border-color: #2A2E3D !important;
-    }
-    
-    /* Status Badge Styling */
-    .badge-online {
-        background-color: rgba(0, 204, 150, 0.15);
-        color: #00CC96;
-        border: 1px solid #00CC96;
-        padding: 4px 10px;
-        border-radius: 4px;
-        font-size: 12px;
-        font-weight: 600;
-    }
-    
-    .badge-offline {
-        background-color: rgba(255, 75, 75, 0.15);
-        color: #FF4B4B;
-        border: 1px solid #FF4B4B;
-        padding: 4px 10px;
-        border-radius: 4px;
-        font-size: 12px;
-        font-weight: 600;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -132,7 +102,7 @@ DASHBOARD_COLUMNS = [
 
 
 # =============================================================================
-# OPTIMIZED DATA AND MODEL LOADING (PREVENTS STREAMLIT MEMORY CRASH)
+# DATA LOADING (MEMORY OPTIMIZED)
 # =============================================================================
 
 @st.cache_data(show_spinner="Streaming & filtering dataset from Cloudflare R2...")
@@ -141,15 +111,12 @@ def load_data():
         dataset_bytes = fetch_dataset_bytes()
         buffer = io.BytesIO(dataset_bytes)
         
-        # Open Parquet file without loading all unneeded bytes to RAM
         parquet_file = pq.ParquetFile(buffer)
         available_cols = [c for c in DASHBOARD_COLUMNS if c in parquet_file.schema.names]
         
-        # Read only contract schema columns
         table = parquet_file.read(columns=available_cols)
         df = table.to_pandas()
         
-        # Downcast float64 to float32 to halve memory usage
         float_cols = df.select_dtypes(include=['float64']).columns
         df[float_cols] = df[float_cols].astype('float32')
         
@@ -166,14 +133,7 @@ def load_data():
         errors="coerce"
     )
 
-    return df.sort_values(
-        ["equipment_id", "timestamp"]
-    )
-
-
-@st.cache_resource(show_spinner="Verifying models on Cloudflare R2...")
-def load_models():
-    return True
+    return df.sort_values(["equipment_id", "timestamp"])
 
 
 @st.cache_data
@@ -183,10 +143,9 @@ def load_shap_data():
     return pd.read_csv(SHAP_PATH)
 
 
-# Initialize Dataset and Models
+# Initialize Dataset
 try:
     df = load_data()
-    load_models()
 except Exception as exc:
     st.error(f"Unable to load resources:\n\n{exc}")
     st.stop()
@@ -195,15 +154,14 @@ shap_df = load_shap_data()
 
 
 # =============================================================================
-# API / WORKER HEALTH CHECKS
+# HEALTH CHECKS & SAFE PREDICTION FETCHING
 # =============================================================================
 
 def check_worker_and_api():
     worker_ok, worker_msg = check_worker_health()
-    
     api_ok = False
     try:
-        resp = requests.get(f"{API_URL}/health", timeout=10)
+        resp = requests.get(f"{API_URL}/health", timeout=3)
         if resp.status_code == 200:
             api_ok = True
     except Exception:
@@ -212,7 +170,8 @@ def check_worker_and_api():
     return worker_ok, api_ok
 
 
-def get_prediction(row):
+def get_prediction_safe(row):
+    """Safely fetch predictions without crashing on API timeout or failure."""
     payload = {
         "equipment_id": str(row["equipment_id"]),
         "train": str(row["train"])
@@ -223,22 +182,21 @@ def get_prediction(row):
             value = row[feature]
             payload[feature] = None if pd.isna(value) else float(value)
 
-    response = requests.post(
-        f"{API_URL}/predict",
-        json=payload,
-        timeout=120
-    )
-
-    if response.status_code != 200:
-        raise RuntimeError(
-            f"Prediction API returned {response.status_code}: {response.text}"
+    try:
+        response = requests.post(
+            f"{API_URL}/predict",
+            json=payload,
+            timeout=8  # Fast 8-second timeout to avoid UI freezes
         )
-
-    return response.json()
+        if response.status_code == 200:
+            return response.json()
+    except Exception:
+        pass
+    return None
 
 
 # =============================================================================
-# SIDEBAR
+# SIDEBAR NAVIGATION
 # =============================================================================
 
 st.sidebar.title("🎛️ IDSS Control Center")
@@ -253,7 +211,7 @@ else:
 if api_ok:
     st.sidebar.success("Prediction API (Render): ONLINE")
 else:
-    st.sidebar.warning("Prediction API (Render): OFFLINE / SLEEPING")
+    st.sidebar.warning("Prediction API (Render): STANDBY / SLEEPING")
 
 st.sidebar.divider()
 
@@ -265,11 +223,8 @@ train_df = df[df["train"] == selected_train]
 assets = sorted(train_df["equipment_id"].dropna().unique())
 selected_asset = st.sidebar.selectbox("Equipment", assets)
 
-asset_history = (
-    train_df[train_df["equipment_id"] == selected_asset]
-    .sort_values("timestamp")
-    .copy()
-)
+# Filter history safely
+asset_history = train_df[train_df["equipment_id"] == selected_asset].sort_values("timestamp")
 
 if asset_history.empty:
     st.error("No observations available for this equipment.")
@@ -279,29 +234,22 @@ asset_current = asset_history.iloc[-1]
 
 
 # =============================================================================
-# PREDICTION FETCH
+# PREDICTION EXECUTION
 # =============================================================================
 
 prediction = None
-
 if api_ok:
-    try:
-        prediction = get_prediction(asset_current)
-    except Exception as exc:
-        st.sidebar.caption(f"Prediction note: {exc}")
+    prediction = get_prediction_safe(asset_current)
 
 
 # =============================================================================
-# HEADER
+# MAIN DASHBOARD UI
 # =============================================================================
 
 st.title("🛡️ NLNG Predictive Maintenance IDSS")
 st.caption("Pipeline 2.0 Model-Serving and Maintenance Decision-Support Interface")
 
-# =============================================================================
-# EXECUTIVE KPI CARDS
-# =============================================================================
-
+# KPI Cards
 if prediction is not None:
     failure_probability = prediction.get("failure_probability_24h", 0)
     failure_percent = failure_probability * 100
@@ -315,54 +263,49 @@ else:
 kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
 
 with kpi1:
-    st.metric("Equipment ID", selected_asset)
+    st.metric("Equipment ID", str(selected_asset))
 
 with kpi2:
-    st.metric("Facility", selected_train)
+    st.metric("Facility", str(selected_train))
 
 with kpi3:
     st.metric(
         "24h Failure Risk",
-        f"{failure_percent:.2f}%" if prediction is not None else "N/A"
+        f"{failure_percent:.2f}%" if not np.isnan(failure_percent) else "N/A"
     )
 
 with kpi4:
     st.metric(
         "Estimated RUL",
-        f"{rul_days:.1f} Days" if prediction is not None else "N/A"
+        f"{rul_days:.1f} Days" if not np.isnan(rul_days) else "N/A"
     )
 
 with kpi5:
-    st.metric("Operating State", str(asset_current["operating_state"]))
+    st.metric("Operating State", str(asset_current.get("operating_state", "N/A")))
 
 st.markdown("<br>", unsafe_allow_html=True)
 
 
-# =============================================================================
-# EQUIPMENT DETAILS (CARD)
-# =============================================================================
-
+# Equipment Details Card
 with st.container(border=True):
     st.markdown("##### 🛠️ Equipment Profile")
     i1, i2, i3, i4 = st.columns(4)
     
     with i1:
-        st.markdown(f"**Name:** {asset_current['equipment_name']}")
+        st.markdown(f"**Name:** {asset_current.get('equipment_name', 'N/A')}")
     with i2:
-        st.markdown(f"**Type:** {asset_current['equipment_type']}")
+        st.markdown(f"**Type:** {asset_current.get('equipment_type', 'N/A')}")
     with i3:
-        st.markdown(f"**Criticality:** `{asset_current['criticality']}`")
+        st.markdown(f"**Criticality:** `{asset_current.get('criticality', 'N/A')}`")
     with i4:
-        st.markdown(f"**Last Sync:** {asset_current['timestamp'].strftime('%Y-%m-%d %H:%M')}")
+        ts_str = asset_current['timestamp'].strftime('%Y-%m-%d %H:%M') if pd.notna(asset_current['timestamp']) else "N/A"
+        st.markdown(f"**Last Sync:** {ts_str}")
 
 
 st.markdown("<br>", unsafe_allow_html=True)
 
 
-# =============================================================================
-# CONDITION TRENDS + RADIAL GAUGE
-# =============================================================================
-
+# Visualizations
 left, right = st.columns([1.8, 1])
 
 with left:
@@ -411,7 +354,7 @@ with right:
     with st.container(border=True):
         st.markdown("##### 🎯 24-Hour Failure Risk")
 
-        gauge_value = failure_percent if prediction is not None and not np.isnan(failure_percent) else 0
+        gauge_value = failure_percent if not np.isnan(failure_percent) else 0
 
         fig_gauge = go.Figure(
             go.Indicator(
@@ -453,10 +396,7 @@ with right:
 st.markdown("<br>", unsafe_allow_html=True)
 
 
-# =============================================================================
-# SERVED MODELS & SHAP DRIVERS
-# =============================================================================
-
+# Models & SHAP Drivers
 m_col, s_col = st.columns([1, 1])
 
 with m_col:
@@ -506,15 +446,12 @@ with s_col:
 st.markdown("<br>", unsafe_allow_html=True)
 
 
-# =============================================================================
-# DECISION SUPPORT
-# =============================================================================
-
+# Maintenance Decision Support System
 with st.container(border=True):
     st.markdown("##### 💡 Maintenance Decision Support System (IDSS)")
 
     if prediction is None:
-        st.info("Prediction API service endpoint inactive or running standalone visualizer mode.")
+        st.info("Prediction API service endpoint offline/standby. Displaying telemetry trends in visualizer mode.")
     else:
         if failure_risk == "CRITICAL":
             st.error(
@@ -541,12 +478,5 @@ with st.container(border=True):
                 f"**Action Required:** Continue routine monitoring schedules."
             )
 
-    st.caption(
-        "Notice: The IDSS provides decision-support insights. It does not automatically "
-        "execute plant-control actions or system shutdowns."
-    )
-
 st.divider()
-st.caption(
-    "NLNG Predictive Maintenance IDSS | Streamlit → Cloudflare R2 Worker / Render API → Pipeline 2.0"
-)
+st.caption("NLNG Predictive Maintenance IDSS | Streamlit → Cloudflare R2 Worker / Render API → Pipeline 2.0")
