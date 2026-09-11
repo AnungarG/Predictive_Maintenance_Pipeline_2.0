@@ -18,7 +18,7 @@ from worker_client import (
 )
 
 # =============================================================================
-# CONFIGURATION
+# PAGE CONFIGURATION
 # =============================================================================
 
 st.set_page_config(
@@ -27,6 +27,61 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# =============================================================================
+# POWER BI EXECUTIVE THEME & STYLING (CUSTOM CSS)
+# =============================================================================
+
+st.markdown("""
+<style>
+    /* Main Background */
+    .stApp {
+        background-color: #0E1117;
+    }
+    
+    /* Executive Metric Card Styling */
+    div[data-testid="stMetricValue"] {
+        font-size: 26px !important;
+        font-weight: 700 !important;
+        color: #00D4FF !important;
+    }
+    
+    div[data-testid="metric-container"] {
+        background-color: #1E222D;
+        border: 1px solid #2A2E3D;
+        border-radius: 8px;
+        padding: 14px;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.25);
+    }
+    
+    /* Native Container Card Borders */
+    [data-testid="stVerticalBlock"] > div[data-testid="stBlock"] {
+        border-color: #2A2E3D !important;
+    }
+    
+    /* Status Badge Styling */
+    .badge-online {
+        background-color: rgba(0, 204, 150, 0.15);
+        color: #00CC96;
+        border: 1px solid #00CC96;
+        padding: 4px 10px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: 600;
+    }
+    
+    .badge-offline {
+        background-color: rgba(255, 75, 75, 0.15);
+        color: #FF4B4B;
+        border: 1px solid #FF4B4B;
+        padding: 4px 10px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: 600;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 
 SHAP_PATH = os.path.join(
     "data",
@@ -85,19 +140,16 @@ DASHBOARD_COLUMNS = [
 @st.cache_data(show_spinner="Downloading & loading dataset from Cloudflare R2...")
 def load_data():
     try:
-        # Fetch Parquet dataset from Cloudflare R2 via Worker
         dataset_bytes = fetch_dataset_bytes()
         df = pd.read_parquet(io.BytesIO(dataset_bytes))
     except Exception as e:
-        # Fallback to local copy if available
         local_path = "data/NLNG_cleaned_leakage_controlled.parquet"
         if os.path.exists(local_path):
-            st.warning("Worker dataset fetch failed. Falling back to local dataset copy...")
+            st.warning("Worker dataset fetch failed. Falling back to local copy...")
             df = pd.read_parquet(local_path)
         else:
             raise e
 
-    # Filter to contract columns if present
     available_cols = [col for col in DASHBOARD_COLUMNS if col in df.columns]
     df = df[available_cols].copy()
 
@@ -135,7 +187,7 @@ shap_df = load_shap_data()
 
 
 # =============================================================================
-# API / WORKER FUNCTIONS
+# API / WORKER HEALTH CHECKS
 # =============================================================================
 
 def check_worker_and_api():
@@ -175,14 +227,6 @@ def get_prediction(row):
         )
 
     return response.json()
-
-
-# =============================================================================
-# HEADER
-# =============================================================================
-
-st.title("🛡️ NLNG Predictive Maintenance IDSS")
-st.caption("Pipeline 2.0 model-serving and maintenance decision-support interface")
 
 
 # =============================================================================
@@ -227,7 +271,7 @@ asset_current = asset_history.iloc[-1]
 
 
 # =============================================================================
-# PREDICTION
+# PREDICTION FETCH
 # =============================================================================
 
 prediction = None
@@ -240,7 +284,14 @@ if api_ok:
 
 
 # =============================================================================
-# TOP KPIs
+# HEADER
+# =============================================================================
+
+st.title("🛡️ NLNG Predictive Maintenance IDSS")
+st.caption("Pipeline 2.0 Model-Serving and Maintenance Decision-Support Interface")
+
+# =============================================================================
+# EXECUTIVE KPI CARDS
 # =============================================================================
 
 if prediction is not None:
@@ -253,263 +304,241 @@ else:
     failure_risk = "UNAVAILABLE"
     rul_days = np.nan
 
-col1, col2, col3, col4, col5 = st.columns(5)
+kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
 
-with col1:
-    st.metric("Equipment", selected_asset)
+with kpi1:
+    st.metric("Equipment ID", selected_asset)
 
-with col2:
-    st.metric("Train", selected_train)
+with kpi2:
+    st.metric("Facility", selected_train)
 
-with col3:
+with kpi3:
     st.metric(
         "24h Failure Risk",
         f"{failure_percent:.2f}%" if prediction is not None else "N/A"
     )
 
-with col4:
+with kpi4:
     st.metric(
         "Estimated RUL",
-        f"{rul_days:.2f} days" if prediction is not None else "N/A"
+        f"{rul_days:.1f} Days" if prediction is not None else "N/A"
     )
 
-with col5:
+with kpi5:
     st.metric("Operating State", str(asset_current["operating_state"]))
 
-st.divider()
+st.markdown("<br>", unsafe_allow_html=True)
 
 
 # =============================================================================
-# ASSET INFORMATION
+# EQUIPMENT DETAILS (CARD)
 # =============================================================================
 
-st.subheader("Equipment Information")
+with st.container(border=True):
+    st.markdown("##### 🛠️ Equipment Profile")
+    i1, i2, i3, i4 = st.columns(4)
+    
+    with i1:
+        st.markdown(f"**Name:** {asset_current['equipment_name']}")
+    with i2:
+        st.markdown(f"**Type:** {asset_current['equipment_type']}")
+    with i3:
+        st.markdown(f"**Criticality:** `{asset_current['criticality']}`")
+    with i4:
+        st.markdown(f"**Last Sync:** {asset_current['timestamp'].strftime('%Y-%m-%d %H:%M')}")
 
-i1, i2, i3, i4 = st.columns(4)
 
-with i1:
-    st.write("**Equipment Name**")
-    st.write(asset_current["equipment_name"])
-
-with i2:
-    st.write("**Equipment Type**")
-    st.write(asset_current["equipment_type"])
-
-with i3:
-    st.write("**Criticality**")
-    st.write(asset_current["criticality"])
-
-with i4:
-    st.write("**Latest Observation**")
-    st.write(asset_current["timestamp"].strftime("%Y-%m-%d %H:%M"))
-
-st.divider()
+st.markdown("<br>", unsafe_allow_html=True)
 
 
 # =============================================================================
-# CONDITION TRENDS + RISK GAUGE
+# CONDITION TRENDS + RADIAL GAUGE
 # =============================================================================
 
-left, right = st.columns([1.7, 1])
+left, right = st.columns([1.8, 1])
 
 with left:
-    st.subheader("📈 Equipment Condition Trends")
+    with st.container(border=True):
+        st.markdown("##### 📈 Equipment Condition Trends")
 
-    recent = asset_history.tail(500).copy()
-    fig = go.Figure()
+        recent = asset_history.tail(500).copy()
+        fig = go.Figure()
 
-    if "overall_vibration" in recent.columns:
-        fig.add_trace(
-            go.Scatter(
-                x=recent["timestamp"],
-                y=recent["overall_vibration"],
-                name="Overall Vibration",
-                mode="lines"
+        if "overall_vibration" in recent.columns:
+            fig.add_trace(
+                go.Scatter(
+                    x=recent["timestamp"],
+                    y=recent["overall_vibration"],
+                    name="Overall Vibration",
+                    mode="lines",
+                    line=dict(color="#00D4FF", width=2)
+                )
             )
+
+        if "oil_particles_ppm" in recent.columns:
+            fig.add_trace(
+                go.Scatter(
+                    x=recent["timestamp"],
+                    y=recent["oil_particles_ppm"],
+                    name="Oil Particles (PPM)",
+                    mode="lines",
+                    line=dict(color="#FF4B4B", width=1.5, dash="dot")
+                )
+            )
+
+        fig.update_layout(
+            paper_bgcolor="#1E222D",
+            plot_bgcolor="#1E222D",
+            font=dict(color="#E0E0E0", family="Segoe UI, sans-serif"),
+            xaxis=dict(showgrid=True, gridcolor="#2A2E3D", zeroline=False),
+            yaxis=dict(showgrid=True, gridcolor="#2A2E3D", zeroline=False),
+            margin=dict(l=20, r=20, t=30, b=20),
+            height=360,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
         )
 
-    if "oil_particles_ppm" in recent.columns:
-        fig.add_trace(
-            go.Scatter(
-                x=recent["timestamp"],
-                y=recent["oil_particles_ppm"],
-                name="Oil Particles",
-                mode="lines"
-            )
-        )
-
-    fig.update_layout(
-        title="Recent Equipment Condition",
-        xaxis_title="Timestamp",
-        yaxis_title="Value",
-        template="plotly_dark",
-        height=400
-    )
-
-    st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True)
 
 with right:
-    st.subheader("🎯 24-Hour Failure Risk")
+    with st.container(border=True):
+        st.markdown("##### 🎯 24-Hour Failure Risk")
 
-    gauge_value = failure_percent if prediction is not None else 0
+        gauge_value = failure_percent if prediction is not None and not np.isnan(failure_percent) else 0
 
-    fig = go.Figure(
-        go.Indicator(
-            mode="gauge+number",
-            value=gauge_value if not np.isnan(gauge_value) else 0,
-            title={"text": "Failure Probability (%)"},
-            gauge={
-                "axis": {"range": [0, 100]},
-                "steps": [
-                    {"range": [0, 10], "color": "#00CC96"},
-                    {"range": [10, 30], "color": "#FFAA00"},
-                    {"range": [30, 100], "color": "#FF4B4B"}
-                ]
-            }
+        fig_gauge = go.Figure(
+            go.Indicator(
+                mode="gauge+number",
+                value=gauge_value,
+                number={'suffix': "%", 'font': {'size': 32, 'color': '#FFFFFF'}},
+                gauge={
+                    'axis': {'range': [0, 100], 'tickwidth': 1, 'tickcolor': "#A0A0A0"},
+                    'bar': {'color': "#00D4FF"},
+                    'bgcolor': "#14171F",
+                    'borderwidth': 1,
+                    'bordercolor': "#2A2E3D",
+                    'steps': [
+                        {'range': [0, 15], 'color': 'rgba(0, 204, 150, 0.3)'},
+                        {'range': [15, 35], 'color': 'rgba(255, 170, 0, 0.3)'},
+                        {'range': [35, 100], 'color': 'rgba(255, 75, 75, 0.3)'}
+                    ]
+                }
+            )
         )
-    )
 
-    fig.update_layout(template="plotly_dark", height=400)
-    st.plotly_chart(fig, use_container_width=True)
+        fig_gauge.update_layout(
+            paper_bgcolor="#1E222D",
+            font=dict(color="#E0E0E0", family="Segoe UI, sans-serif"),
+            height=280,
+            margin=dict(l=20, r=20, t=20, b=10)
+        )
 
-    if prediction is not None:
-        if failure_risk == "LOW":
-            st.success(f"🟢 Risk Level: {failure_risk}")
-        elif failure_risk == "MODERATE":
-            st.warning(f"🟡 Risk Level: {failure_risk}")
-        elif failure_risk == "HIGH":
-            st.warning(f"🟠 Risk Level: {failure_risk}")
+        st.plotly_chart(fig_gauge, use_container_width=True)
+
+        if prediction is not None:
+            if failure_risk == "LOW":
+                st.success(f"🟢 Risk Level: {failure_risk}")
+            elif failure_risk in ["MODERATE", "HIGH"]:
+                st.warning(f"🟡 Risk Level: {failure_risk}")
+            else:
+                st.error(f"🔴 Risk Level: {failure_risk}")
+
+st.markdown("<br>", unsafe_allow_html=True)
+
+
+# =============================================================================
+# SERVED MODELS & SHAP DRIVERS
+# =============================================================================
+
+m_col, s_col = st.columns([1, 1])
+
+with m_col:
+    with st.container(border=True):
+        st.markdown("##### 🤖 Active Model Suite")
+        st.info(
+            "**Classification Engine**\n\n"
+            "Deep Learning MLP / Gradient Boosting Classifier\n\n"
+            "Predicts 24-hour equipment failure probability."
+        )
+        st.info(
+            "**Regression Engine**\n\n"
+            "Random Forest Regressor / LSTM Architecture\n\n"
+            "Estimates Remaining Useful Life (RUL) in days."
+        )
+
+with s_col:
+    with st.container(border=True):
+        st.markdown("##### 🔎 Global Model Drivers (SHAP)")
+        if not shap_df.empty:
+            top = shap_df.head(7).copy()
+
+            fig_shap = go.Figure(
+                go.Bar(
+                    x=top["Mean_Absolute_SHAP"],
+                    y=top["Feature"],
+                    orientation="h",
+                    marker=dict(color="#00D4FF")
+                )
+            )
+
+            fig_shap.update_layout(
+                paper_bgcolor="#1E222D",
+                plot_bgcolor="#1E222D",
+                font=dict(color="#E0E0E0", family="Segoe UI, sans-serif"),
+                xaxis=dict(showgrid=True, gridcolor="#2A2E3D"),
+                margin=dict(l=20, r=20, t=20, b=20),
+                height=250,
+                yaxis={"categoryorder": "total ascending"}
+            )
+
+            st.plotly_chart(fig_shap, use_container_width=True)
         else:
-            st.error(f"🔴 Risk Level: {failure_risk}")
-
-st.divider()
+            st.caption("SHAP feature importance data unavailable.")
 
 
-# =============================================================================
-# RUL
-# =============================================================================
-
-st.subheader("⌛ Remaining Useful Life")
-
-if prediction is not None and not np.isnan(rul_days):
-    st.metric("Estimated RUL", f"{rul_days:.2f} days")
-    st.info(
-        "RUL is presented as a model-generated estimate for maintenance planning "
-        "support and should not be interpreted as an exact failure date."
-    )
-else:
-    st.warning("RUL prediction unavailable.")
-
-st.divider()
-
-
-# =============================================================================
-# SERVED MODEL INFORMATION
-# =============================================================================
-
-st.subheader("🤖 Models Being Served")
-
-m1, m2 = st.columns(2)
-
-with m1:
-    st.info(
-        "**Classification**\n\n"
-        "Deep Learning MLP / Gradient Boosting Classifier\n\n"
-        "24-hour failure-risk prediction"
-    )
-
-with m2:
-    st.info(
-        "**Regression**\n\n"
-        "Random Forest Regressor / LSTM\n\n"
-        "Remaining Useful Life estimation"
-    )
-
-st.divider()
-
-
-# =============================================================================
-# SHAP GLOBAL DRIVERS
-# =============================================================================
-
-st.subheader("🔎 Global Model Drivers")
-
-if not shap_df.empty:
-    top = shap_df.head(10).copy()
-
-    fig = go.Figure(
-        go.Bar(
-            x=top["Mean_Absolute_SHAP"],
-            y=top["Feature"],
-            orientation="h"
-        )
-    )
-
-    fig.update_layout(
-        title="Top Global Failure-Prediction Drivers",
-        xaxis_title="Mean Absolute SHAP Value",
-        yaxis_title="Feature",
-        template="plotly_dark",
-        height=450,
-        yaxis={"categoryorder": "total ascending"}
-    )
-
-    st.plotly_chart(fig, use_container_width=True)
-
-    st.caption(
-        "These are global model drivers from the Stage 5 SHAP analysis. They describe "
-        "overall model behaviour and are not a case-specific causal explanation."
-    )
-
-st.divider()
+st.markdown("<br>", unsafe_allow_html=True)
 
 
 # =============================================================================
 # DECISION SUPPORT
 # =============================================================================
 
-st.subheader("💡 Predictive Maintenance Decision Support")
+with st.container(border=True):
+    st.markdown("##### 💡 Maintenance Decision Support System (IDSS)")
 
-if prediction is None:
-    st.info("Prediction API service endpoint inactive or running stand-alone visualizer mode.")
-else:
-    if failure_risk == "CRITICAL":
-        st.error(
-            f"**CRITICAL RISK**\n\n"
-            f"{selected_asset} has a high predicted probability of failure within the defined 24-hour horizon.\n\n"
-            f"**Suggested decision-support action:**\n"
-            f"Prioritise engineering assessment and condition review."
-        )
-    elif failure_risk == "HIGH":
-        st.warning(
-            f"**HIGH RISK**\n\n"
-            f"{selected_asset} requires increased monitoring and maintenance review.\n\n"
-            f"**Suggested decision-support action:**\n"
-            f"Prioritise condition assessment and maintenance planning."
-        )
-    elif failure_risk == "MODERATE":
-        st.warning(
-            f"**MODERATE RISK**\n\n"
-            f"{selected_asset} shows elevated predicted failure risk.\n\n"
-            f"**Suggested decision-support action:**\n"
-            f"Review current condition indicators and continue focused monitoring."
-        )
+    if prediction is None:
+        st.info("Prediction API service endpoint inactive or running standalone visualizer mode.")
     else:
-        st.success(
-            f"**LOW RISK**\n\n"
-            f"{selected_asset} has a low predicted probability of failure within the defined 24-hour horizon.\n\n"
-            f"**Suggested decision-support action:**\n"
-            f"Continue normal condition monitoring."
-        )
+        if failure_risk == "CRITICAL":
+            st.error(
+                f"**CRITICAL RISK DETECTED**\n\n"
+                f"{selected_asset} has a high predicted probability of failure within 24 hours.\n\n"
+                f"**Action Required:** Prioritise immediate engineering assessment and condition review."
+            )
+        elif failure_risk == "HIGH":
+            st.warning(
+                f"**HIGH RISK DETECTED**\n\n"
+                f"{selected_asset} requires increased monitoring and maintenance scheduling.\n\n"
+                f"**Action Required:** Schedule inspection during the next operational window."
+            )
+        elif failure_risk == "MODERATE":
+            st.warning(
+                f"**MODERATE RISK DETECTED**\n\n"
+                f"{selected_asset} shows elevated condition parameters.\n\n"
+                f"**Action Required:** Continue close telemetry observation."
+            )
+        else:
+            st.success(
+                f"**NORMAL OPERATING CONDITION**\n\n"
+                f"{selected_asset} exhibits low failure probability within the next 24-hour window.\n\n"
+                f"**Action Required:** Continue routine monitoring schedules."
+            )
 
     st.caption(
-        "The IDSS provides decision-support information. It does not automatically "
-        "initiate maintenance, shutdown, or plant-control actions."
+        "Notice: The IDSS provides decision-support insights. It does not automatically "
+        "execute plant-control actions or system shutdowns."
     )
 
 st.divider()
-
 st.caption(
-    "NLNG Predictive Maintenance IDSS | "
-    "Streamlit → Cloudflare R2 Worker / Render API → Pipeline 2.0 Models"
+    "NLNG Predictive Maintenance IDSS | Streamlit → Cloudflare R2 Worker / Render API → Pipeline 2.0"
 )
