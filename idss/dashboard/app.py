@@ -1,49 +1,47 @@
 import os
+import io
 import requests
 import pandas as pd
 import numpy as np
 import streamlit as st
 import plotly.graph_objects as go
-import gdown
+import joblib
+from pathlib import Path
 
+# Import Worker & API Client
+from worker_client import (
+    get_cloudflare_config,
+    get_api_url,
+    check_worker_health,
+    fetch_dataset_bytes,
+    fetch_model_bytes
+)
 
-# ============================================================
-# PAGE CONFIGURATION
-# ============================================================
+# =============================================================================
+# CONFIGURATION
+# =============================================================================
 
 st.set_page_config(
-    page_title="NLNG Predictive Maintenance",
+    page_title="NLNG Predictive Maintenance IDSS",
     page_icon="⚙️",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-
-# ============================================================
-# CONFIGURATION
-# ============================================================
-
-API_URL = st.secrets.get(
-    "API_URL",
-    "http://127.0.0.1:8000"
-)
-
-DATA_DIR = "data"
-
-DATASET_PATH = os.path.join(
-    DATA_DIR,
-    "NLNG_cleaned_leakage_controlled.parquet"
-)
-
-SHAP_PATH = (
-    "data/04_corrected_pipeline/"
-    "stage_5_explainability/"
+SHAP_PATH = os.path.join(
+    "data",
+    "04_corrected_pipeline",
+    "stage_5_explainability",
     "shap_feature_importance.csv"
 )
 
+WORKER_URL, _ = get_cloudflare_config()
+API_URL = get_api_url()
 
-# ============================================================
-# MODEL FEATURES
-# ============================================================
+
+# =============================================================================
+# AUTHORITATIVE FEATURE CONTRACT
+# =============================================================================
 
 FEATURE_COLUMNS = [
     "commission_year",
@@ -69,11 +67,6 @@ FEATURE_COLUMNS = [
     "quality_factor"
 ]
 
-
-# ============================================================
-# DASHBOARD COLUMNS
-# ============================================================
-
 DASHBOARD_COLUMNS = [
     "timestamp",
     "train",
@@ -85,1064 +78,438 @@ DASHBOARD_COLUMNS = [
 ] + FEATURE_COLUMNS
 
 
-# ============================================================
-# LOAD NLNG DATASET
-# ============================================================
+# =============================================================================
+# DATA AND MODEL LOADING
+# =============================================================================
 
-@st.cache_data(show_spinner="Loading NLNG dataset...")
+@st.cache_data(show_spinner="Downloading & loading dataset from Cloudflare R2...")
 def load_data():
-
-    # Make sure the local data directory exists
-    os.makedirs(DATA_DIR, exist_ok=True)
-
-    # --------------------------------------------------------
-    # GOOGLE DRIVE FILE
-    # --------------------------------------------------------
-
-    google_drive_file_id = (
-        "1glib_3N3PuvQtnvr8s8NN-MGITLLjcZ"
-    )
-
-    google_drive_url = (
-        "https://drive.google.com/uc"
-        f"?id={google_drive_file_id}"
-    )
-
-    # --------------------------------------------------------
-    # DOWNLOAD DATASET ONLY IF IT DOES NOT EXIST
-    # --------------------------------------------------------
-
-    if not os.path.exists(DATASET_PATH):
-
-        st.info(
-            "NLNG dataset is not available locally. "
-            "Downloading from Google Drive..."
-        )
-
-        try:
-
-            downloaded_file = gdown.download(
-                url=google_drive_url,
-                output=DATASET_PATH,
-                quiet=False
-            )
-
-            # ------------------------------------------------
-            # CHECK 1: DOWNLOAD RESULT
-            # ------------------------------------------------
-
-            if downloaded_file is None:
-
-                raise RuntimeError(
-                    "Google Drive did not return the dataset."
-                )
-
-            # ------------------------------------------------
-            # CHECK 2: FILE EXISTS
-            # ------------------------------------------------
-
-            if not os.path.exists(DATASET_PATH):
-
-                raise RuntimeError(
-                    "The download completed without creating "
-                    "the expected Parquet file."
-                )
-
-            # ------------------------------------------------
-            # CHECK 3: FILE SIZE
-            # ------------------------------------------------
-
-            file_size = os.path.getsize(DATASET_PATH)
-
-            if file_size == 0:
-
-                os.remove(DATASET_PATH)
-
-                raise RuntimeError(
-                    "Google Drive returned an empty file."
-                )
-
-            # ------------------------------------------------
-            # CHECK 4: DETECT HTML RESPONSE
-            # ------------------------------------------------
-
-            with open(
-                DATASET_PATH,
-                "rb"
-            ) as f:
-
-                file_header = f.read(1000).lower()
-
-            html_signatures = [
-                b"<html",
-                b"<!doctype",
-                b"<head",
-                b"<body",
-                b"google drive"
-            ]
-
-            if any(
-                signature in file_header
-                for signature in html_signatures
-            ):
-
-                os.remove(DATASET_PATH)
-
-                raise RuntimeError(
-                    "Google Drive returned an HTML page "
-                    "instead of the Parquet dataset."
-                )
-
-            # ------------------------------------------------
-            # CHECK 5: VALIDATE PARQUET
-            # ------------------------------------------------
-
-            try:
-
-                test_df = pd.read_parquet(
-                    DATASET_PATH
-                )
-
-                if test_df.empty:
-
-                    del test_df
-
-                    os.remove(DATASET_PATH)
-
-                    raise RuntimeError(
-                        "The downloaded Parquet file "
-                        "contains no records."
-                    )
-
-                del test_df
-
-            except Exception as parquet_error:
-
-                if os.path.exists(DATASET_PATH):
-
-                    os.remove(DATASET_PATH)
-
-                raise RuntimeError(
-                    "The downloaded file is not a valid "
-                    "Parquet dataset."
-                ) from parquet_error
-
-            # ------------------------------------------------
-            # SUCCESS MESSAGE
-            # ------------------------------------------------
-
-            st.success(
-                "NLNG dataset downloaded successfully "
-                f"({file_size / (1024 * 1024):.1f} MB)."
-            )
-
-        except Exception as e:
-
-            # Remove incomplete/invalid download
-            if os.path.exists(DATASET_PATH):
-
-                try:
-                    os.remove(DATASET_PATH)
-                except Exception:
-                    pass
-
-            st.error(
-                "Unable to download the NLNG dataset "
-                "from Google Drive."
-            )
-
-            st.code(
-                str(e),
-                language="text"
-            )
-
-            st.info(
-                "The Google Drive file should be shared as "
-                "'Anyone with the link → Viewer'. "
-                "If that permission is already correct, "
-                "the issue may be related to Google Drive's "
-                "download mechanism or file quota."
-            )
-
-            st.stop()
-
-    # --------------------------------------------------------
-    # DATASET ALREADY EXISTS LOCALLY
-    # --------------------------------------------------------
-
-    else:
-
-        file_size = os.path.getsize(
-            DATASET_PATH
-        )
-
-        if file_size == 0:
-
-            os.remove(DATASET_PATH)
-
-            st.error(
-                "The local NLNG dataset file is empty."
-            )
-
-            st.stop()
-
-    # ========================================================
-    # READ PARQUET
-    # ========================================================
-
     try:
-
-        df = pd.read_parquet(
-            DATASET_PATH
-        )
-
+        # Fetch Parquet dataset from Cloudflare R2 via Worker
+        dataset_bytes = fetch_dataset_bytes()
+        df = pd.read_parquet(io.BytesIO(dataset_bytes))
     except Exception as e:
+        # Fallback to local copy if available
+        local_path = "data/NLNG_cleaned_leakage_controlled.parquet"
+        if os.path.exists(local_path):
+            st.warning("Worker dataset fetch failed. Falling back to local dataset copy...")
+            df = pd.read_parquet(local_path)
+        else:
+            raise e
 
-        st.error(
-            "The NLNG dataset could not be read "
-            "as a Parquet file."
-        )
-
-        st.code(
-            str(e),
-            language="text"
-        )
-
-        st.stop()
-
-    # ========================================================
-    # SELECT AVAILABLE DASHBOARD COLUMNS
-    # ========================================================
-
-    available_cols = [
-        col
-        for col in DASHBOARD_COLUMNS
-        if col in df.columns
-    ]
-
-    missing_cols = [
-        col
-        for col in DASHBOARD_COLUMNS
-        if col not in df.columns
-    ]
-
-    if missing_cols:
-
-        st.warning(
-            "Some expected dashboard columns are missing "
-            "from the dataset:"
-        )
-
-        st.write(
-            missing_cols
-        )
-
-    df = df[
-        available_cols
-    ].copy()
-
-    # ========================================================
-    # TIMESTAMP VALIDATION
-    # ========================================================
-
-    if "timestamp" not in df.columns:
-
-        st.error(
-            "The dataset does not contain the required "
-            "'timestamp' column."
-        )
-
-        st.stop()
+    # Filter to contract columns if present
+    available_cols = [col for col in DASHBOARD_COLUMNS if col in df.columns]
+    df = df[available_cols].copy()
 
     df["timestamp"] = pd.to_datetime(
         df["timestamp"],
         errors="coerce"
     )
 
-    invalid_timestamps = (
-        df["timestamp"].isna().sum()
-    )
-
-    if invalid_timestamps > 0:
-
-        st.warning(
-            f"{invalid_timestamps:,} records contain "
-            "invalid timestamps and will be removed."
-        )
-
-        df = df.dropna(
-            subset=["timestamp"]
-        )
-
-    # ========================================================
-    # EQUIPMENT ID VALIDATION
-    # ========================================================
-
-    if "equipment_id" not in df.columns:
-
-        st.error(
-            "The dataset does not contain the required "
-            "'equipment_id' column."
-        )
-
-        st.stop()
-
-    # ========================================================
-    # SORT DATA
-    # ========================================================
-
-    df = df.sort_values(
+    return df.sort_values(
         ["equipment_id", "timestamp"]
-    ).reset_index(
-        drop=True
     )
 
-    # ========================================================
-    # FINAL VALIDATION
-    # ========================================================
 
-    if df.empty:
+@st.cache_resource(show_spinner="Verifying models on Cloudflare R2...")
+def load_models():
+    return True
 
-        st.error(
-            "The NLNG dataset contains no usable records."
-        )
-
-        st.stop()
-
-    return df
-
-
-# ============================================================
-# LOAD SHAP FEATURE IMPORTANCE
-# ============================================================
 
 @st.cache_data
-def load_shap():
-
+def load_shap_data():
     if not os.path.exists(SHAP_PATH):
+        return pd.DataFrame()
+    return pd.read_csv(SHAP_PATH)
 
-        return None
 
+# Initialize Dataset and Models
+try:
+    df = load_data()
+    load_models()
+except Exception as exc:
+    st.error(f"Unable to load resources:\n\n{exc}")
+    st.stop()
+
+shap_df = load_shap_data()
+
+
+# =============================================================================
+# API / WORKER FUNCTIONS
+# =============================================================================
+
+def check_worker_and_api():
+    worker_ok, worker_msg = check_worker_health()
+    
+    api_ok = False
     try:
-
-        shap_df = pd.read_csv(
-            SHAP_PATH
-        )
-
-        return shap_df
-
+        resp = requests.get(f"{API_URL}/health", timeout=10)
+        if resp.status_code == 200:
+            api_ok = True
     except Exception:
-
-        return None
-
-
-# ============================================================
-# LOAD DATA
-# ============================================================
-
-df = load_data()
-
-shap_df = load_shap()
-
-
-# ============================================================
-# HEADER
-# ============================================================
-
-st.title(
-    "NLNG Predictive Maintenance Dashboard"
-)
-
-st.markdown(
-    """
-    **Equipment Failure Prediction and Maintenance
-    Decision Support System**
-
-    This dashboard provides equipment-level condition
-    monitoring, failure-risk assessment and maintenance
-    decision support for LNG plant operations.
-    """
-)
-
-
-# ============================================================
-# SIDEBAR
-# ============================================================
-
-st.sidebar.header(
-    "Equipment Selection"
-)
-
-
-# ============================================================
-# TRAIN SELECTION
-# ============================================================
-
-if "train" in df.columns:
-
-    trains = sorted(
-        df["train"]
-        .dropna()
-        .astype(str)
-        .unique()
-        .tolist()
-    )
-
-    selected_train = st.sidebar.selectbox(
-        "Select LNG Train",
-        trains
-    )
-
-    train_df = df[
-        df["train"].astype(str)
-        == selected_train
-    ].copy()
-
-else:
-
-    selected_train = None
-
-    train_df = df.copy()
-
-
-# ============================================================
-# EQUIPMENT SELECTION
-# ============================================================
-
-equipment_list = sorted(
-    train_df["equipment_id"]
-    .dropna()
-    .astype(str)
-    .unique()
-    .tolist()
-)
-
-if not equipment_list:
-
-    st.error(
-        "No equipment is available for the selected train."
-    )
-
-    st.stop()
-
-selected_equipment = st.sidebar.selectbox(
-    "Select Equipment",
-    equipment_list
-)
-
-
-# ============================================================
-# SELECTED EQUIPMENT DATA
-# ============================================================
-
-equipment_df = train_df[
-    train_df["equipment_id"].astype(str)
-    == selected_equipment
-].copy()
-
-equipment_df = equipment_df.sort_values(
-    "timestamp"
-)
-
-
-if equipment_df.empty:
-
-    st.warning(
-        "No records found for the selected equipment."
-    )
-
-    st.stop()
-
-
-latest_row = equipment_df.iloc[-1]
-
-
-# ============================================================
-# EQUIPMENT INFORMATION
-# ============================================================
-
-st.subheader(
-    "Equipment Information"
-)
-
-info_col1, info_col2, info_col3, info_col4 = (
-    st.columns(4)
-)
-
-
-with info_col1:
-
-    st.metric(
-        "Equipment ID",
-        selected_equipment
-    )
-
-
-with info_col2:
-
-    if "equipment_name" in equipment_df.columns:
-
-        value = latest_row.get(
-            "equipment_name",
-            "N/A"
-        )
-
-        st.metric(
-            "Equipment Name",
-            str(value)
-        )
-
-
-with info_col3:
-
-    if "equipment_type" in equipment_df.columns:
-
-        value = latest_row.get(
-            "equipment_type",
-            "N/A"
-        )
-
-        st.metric(
-            "Equipment Type",
-            str(value)
-        )
-
-
-with info_col4:
-
-    if "criticality" in equipment_df.columns:
-
-        value = latest_row.get(
-            "criticality",
-            "N/A"
-        )
-
-        st.metric(
-            "Criticality",
-            str(value)
-        )
-
-
-# ============================================================
-# FASTAPI HEALTH CHECK
-# ============================================================
-
-api_status = "Unavailable"
-
-try:
-
-    health_response = requests.get(
-        f"{API_URL}/health",
-        timeout=5
-    )
-
-    if health_response.status_code == 200:
-
-        api_status = "Online"
-
-except Exception:
-
-    api_status = "Unavailable"
-
-
-# ============================================================
-# PREDICTION
-# ============================================================
-
-st.subheader(
-    "Failure Risk Assessment"
-)
-
-prediction = None
-
-try:
-
-    prediction_payload = {
-        "equipment_id": selected_equipment
+        api_ok = False
+        
+    return worker_ok, api_ok
+
+
+def get_prediction(row):
+    payload = {
+        "equipment_id": str(row["equipment_id"]),
+        "train": str(row["train"])
     }
 
-    if selected_train is not None:
-
-        prediction_payload["train"] = (
-            selected_train
-        )
-
-    # --------------------------------------------------------
-    # ADD MODEL FEATURES
-    # --------------------------------------------------------
-
     for feature in FEATURE_COLUMNS:
-
-        if feature in latest_row.index:
-
-            value = latest_row[feature]
-
-            if pd.isna(value):
-
-                value = 0
-
-            prediction_payload[feature] = float(
-                value
-            )
-
-    # --------------------------------------------------------
-    # SEND REQUEST TO FASTAPI
-    # --------------------------------------------------------
+        if feature in row:
+            value = row[feature]
+            payload[feature] = None if pd.isna(value) else float(value)
 
     response = requests.post(
         f"{API_URL}/predict",
-        json=prediction_payload,
-        timeout=15
+        json=payload,
+        timeout=120
     )
 
-    if response.status_code == 200:
-
-        prediction = response.json()
-
-    else:
-
-        st.warning(
-            "Prediction API returned an error."
+    if response.status_code != 200:
+        raise RuntimeError(
+            f"Prediction API returned {response.status_code}: {response.text}"
         )
 
-        st.code(
-            response.text,
-            language="text"
-        )
-
-except Exception as e:
-
-    st.warning(
-        "Unable to connect to the prediction API."
-    )
-
-    st.code(
-        str(e),
-        language="text"
-    )
+    return response.json()
 
 
-# ============================================================
-# DISPLAY PREDICTION
-# ============================================================
+# =============================================================================
+# HEADER
+# =============================================================================
 
-if prediction is not None:
-
-    prediction_col1, prediction_col2, prediction_col3 = (
-        st.columns(3)
-    )
-
-    # --------------------------------------------------------
-    # FAILURE PROBABILITY
-    # --------------------------------------------------------
-
-    failure_probability = prediction.get(
-        "failure_probability_24h",
-        prediction.get(
-            "failure_probability",
-            None
-        )
-    )
-
-    if failure_probability is not None:
-
-        try:
-
-            failure_probability = float(
-                failure_probability
-            )
-
-            if failure_probability <= 1:
-
-                risk_percentage = (
-                    failure_probability * 100
-                )
-
-            else:
-
-                risk_percentage = (
-                    failure_probability
-                )
-
-            with prediction_col1:
-
-                st.metric(
-                    "Failure Risk",
-                    f"{risk_percentage:.2f}%"
-                )
-
-        except Exception:
-
-            with prediction_col1:
-
-                st.metric(
-                    "Failure Risk",
-                    "N/A"
-                )
-
-    else:
-
-        with prediction_col1:
-
-            st.metric(
-                "Failure Risk",
-                "N/A"
-            )
-
-    # --------------------------------------------------------
-    # RUL
-    # --------------------------------------------------------
-
-    rul = prediction.get(
-        "rul_days",
-        prediction.get(
-            "RUL_Days",
-            None
-        )
-    )
-
-    with prediction_col2:
-
-        if rul is not None:
-
-            try:
-
-                st.metric(
-                    "Estimated RUL",
-                    f"{float(rul):.1f} days"
-                )
-
-            except Exception:
-
-                st.metric(
-                    "Estimated RUL",
-                    str(rul)
-                )
-
-        else:
-
-            st.metric(
-                "Estimated RUL",
-                "N/A"
-            )
-
-    # --------------------------------------------------------
-    # API STATUS
-    # --------------------------------------------------------
-
-    with prediction_col3:
-
-        st.metric(
-            "Prediction API",
-            api_status
-        )
+st.title("🛡️ NLNG Predictive Maintenance IDSS")
+st.caption("Pipeline 2.0 model-serving and maintenance decision-support interface")
 
 
-# ============================================================
-# CONDITION TRENDS
-# ============================================================
+# =============================================================================
+# SIDEBAR
+# =============================================================================
 
-st.subheader(
-    "Equipment Condition Trends"
+st.sidebar.title("🎛️ IDSS Control Center")
+
+worker_ok, api_ok = check_worker_and_api()
+
+if worker_ok:
+    st.sidebar.success("Cloudflare R2 Backend: ONLINE")
+else:
+    st.sidebar.error("Cloudflare R2 Backend: OFFLINE")
+
+if api_ok:
+    st.sidebar.success("Prediction API (Render): ONLINE")
+else:
+    st.sidebar.warning("Prediction API (Render): OFFLINE / SLEEPING")
+
+st.sidebar.divider()
+
+trains = sorted(df["train"].dropna().unique())
+selected_train = st.sidebar.selectbox("LNG Train", trains)
+
+train_df = df[df["train"] == selected_train]
+
+assets = sorted(train_df["equipment_id"].dropna().unique())
+selected_asset = st.sidebar.selectbox("Equipment", assets)
+
+asset_history = (
+    train_df[train_df["equipment_id"] == selected_asset]
+    .sort_values("timestamp")
+    .copy()
 )
 
-trend_features = [
-    "vibration",
-    "bearing_temperature",
-    "rpm",
-    "motor_current",
-    "oil_pressure"
-]
+if asset_history.empty:
+    st.error("No observations available for this equipment.")
+    st.stop()
 
-available_trend_features = [
-    feature
-    for feature in trend_features
-    if feature in equipment_df.columns
-]
+asset_current = asset_history.iloc[-1]
 
 
-for feature in available_trend_features:
+# =============================================================================
+# PREDICTION
+# =============================================================================
 
+prediction = None
+
+if api_ok:
+    try:
+        prediction = get_prediction(asset_current)
+    except Exception as exc:
+        st.sidebar.caption(f"Prediction note: {exc}")
+
+
+# =============================================================================
+# TOP KPIs
+# =============================================================================
+
+if prediction is not None:
+    failure_probability = prediction.get("failure_probability_24h", 0)
+    failure_percent = failure_probability * 100
+    failure_risk = prediction.get("failure_risk", "UNKNOWN")
+    rul_days = prediction.get("rul_days", 0)
+else:
+    failure_percent = np.nan
+    failure_risk = "UNAVAILABLE"
+    rul_days = np.nan
+
+col1, col2, col3, col4, col5 = st.columns(5)
+
+with col1:
+    st.metric("Equipment", selected_asset)
+
+with col2:
+    st.metric("Train", selected_train)
+
+with col3:
+    st.metric(
+        "24h Failure Risk",
+        f"{failure_percent:.2f}%" if prediction is not None else "N/A"
+    )
+
+with col4:
+    st.metric(
+        "Estimated RUL",
+        f"{rul_days:.2f} days" if prediction is not None else "N/A"
+    )
+
+with col5:
+    st.metric("Operating State", str(asset_current["operating_state"]))
+
+st.divider()
+
+
+# =============================================================================
+# ASSET INFORMATION
+# =============================================================================
+
+st.subheader("Equipment Information")
+
+i1, i2, i3, i4 = st.columns(4)
+
+with i1:
+    st.write("**Equipment Name**")
+    st.write(asset_current["equipment_name"])
+
+with i2:
+    st.write("**Equipment Type**")
+    st.write(asset_current["equipment_type"])
+
+with i3:
+    st.write("**Criticality**")
+    st.write(asset_current["criticality"])
+
+with i4:
+    st.write("**Latest Observation**")
+    st.write(asset_current["timestamp"].strftime("%Y-%m-%d %H:%M"))
+
+st.divider()
+
+
+# =============================================================================
+# CONDITION TRENDS + RISK GAUGE
+# =============================================================================
+
+left, right = st.columns([1.7, 1])
+
+with left:
+    st.subheader("📈 Equipment Condition Trends")
+
+    recent = asset_history.tail(500).copy()
     fig = go.Figure()
 
-    fig.add_trace(
-        go.Scatter(
-            x=equipment_df["timestamp"],
-            y=equipment_df[feature],
-            mode="lines",
-            name=feature.replace(
-                "_",
-                " "
-            ).title()
+    if "overall_vibration" in recent.columns:
+        fig.add_trace(
+            go.Scatter(
+                x=recent["timestamp"],
+                y=recent["overall_vibration"],
+                name="Overall Vibration",
+                mode="lines"
+            )
+        )
+
+    if "oil_particles_ppm" in recent.columns:
+        fig.add_trace(
+            go.Scatter(
+                x=recent["timestamp"],
+                y=recent["oil_particles_ppm"],
+                name="Oil Particles",
+                mode="lines"
+            )
+        )
+
+    fig.update_layout(
+        title="Recent Equipment Condition",
+        xaxis_title="Timestamp",
+        yaxis_title="Value",
+        template="plotly_dark",
+        height=400
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+with right:
+    st.subheader("🎯 24-Hour Failure Risk")
+
+    gauge_value = failure_percent if prediction is not None else 0
+
+    fig = go.Figure(
+        go.Indicator(
+            mode="gauge+number",
+            value=gauge_value if not np.isnan(gauge_value) else 0,
+            title={"text": "Failure Probability (%)"},
+            gauge={
+                "axis": {"range": [0, 100]},
+                "steps": [
+                    {"range": [0, 10], "color": "#00CC96"},
+                    {"range": [10, 30], "color": "#FFAA00"},
+                    {"range": [30, 100], "color": "#FF4B4B"}
+                ]
+            }
+        )
+    )
+
+    fig.update_layout(template="plotly_dark", height=400)
+    st.plotly_chart(fig, use_container_width=True)
+
+    if prediction is not None:
+        if failure_risk == "LOW":
+            st.success(f"🟢 Risk Level: {failure_risk}")
+        elif failure_risk == "MODERATE":
+            st.warning(f"🟡 Risk Level: {failure_risk}")
+        elif failure_risk == "HIGH":
+            st.warning(f"🟠 Risk Level: {failure_risk}")
+        else:
+            st.error(f"🔴 Risk Level: {failure_risk}")
+
+st.divider()
+
+
+# =============================================================================
+# RUL
+# =============================================================================
+
+st.subheader("⌛ Remaining Useful Life")
+
+if prediction is not None and not np.isnan(rul_days):
+    st.metric("Estimated RUL", f"{rul_days:.2f} days")
+    st.info(
+        "RUL is presented as a model-generated estimate for maintenance planning "
+        "support and should not be interpreted as an exact failure date."
+    )
+else:
+    st.warning("RUL prediction unavailable.")
+
+st.divider()
+
+
+# =============================================================================
+# SERVED MODEL INFORMATION
+# =============================================================================
+
+st.subheader("🤖 Models Being Served")
+
+m1, m2 = st.columns(2)
+
+with m1:
+    st.info(
+        "**Classification**\n\n"
+        "Deep Learning MLP / Gradient Boosting Classifier\n\n"
+        "24-hour failure-risk prediction"
+    )
+
+with m2:
+    st.info(
+        "**Regression**\n\n"
+        "Random Forest Regressor / LSTM\n\n"
+        "Remaining Useful Life estimation"
+    )
+
+st.divider()
+
+
+# =============================================================================
+# SHAP GLOBAL DRIVERS
+# =============================================================================
+
+st.subheader("🔎 Global Model Drivers")
+
+if not shap_df.empty:
+    top = shap_df.head(10).copy()
+
+    fig = go.Figure(
+        go.Bar(
+            x=top["Mean_Absolute_SHAP"],
+            y=top["Feature"],
+            orientation="h"
         )
     )
 
     fig.update_layout(
-        title=feature.replace(
-            "_",
-            " "
-        ).title(),
-        xaxis_title="Timestamp",
-        yaxis_title=feature.replace(
-            "_",
-            " "
-        ).title(),
-        height=350
+        title="Top Global Failure-Prediction Drivers",
+        xaxis_title="Mean Absolute SHAP Value",
+        yaxis_title="Feature",
+        template="plotly_dark",
+        height=450,
+        yaxis={"categoryorder": "total ascending"}
     )
 
-    st.plotly_chart(
-        fig,
-        use_container_width=True
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.caption(
+        "These are global model drivers from the Stage 5 SHAP analysis. They describe "
+        "overall model behaviour and are not a case-specific causal explanation."
     )
 
-
-# ============================================================
-# FAILURE-RISK GAUGE
-# ============================================================
-
-if prediction is not None:
-
-    failure_probability = prediction.get(
-        "failure_probability_24h",
-        prediction.get(
-            "failure_probability",
-            None
-        )
-    )
-
-    if failure_probability is not None:
-
-        try:
-
-            probability = float(
-                failure_probability
-            )
-
-            if probability <= 1:
-
-                probability *= 100
-
-            probability = max(
-                0,
-                min(
-                    probability,
-                    100
-                )
-            )
-
-            st.subheader(
-                "Failure Risk Gauge"
-            )
-
-            gauge = go.Figure(
-                go.Indicator(
-                    mode="gauge+number",
-                    value=probability,
-                    title={
-                        "text": "Failure Risk (%)"
-                    },
-                    gauge={
-                        "axis": {
-                            "range": [0, 100]
-                        }
-                    }
-                )
-            )
-
-            gauge.update_layout(
-                height=350
-            )
-
-            st.plotly_chart(
-                gauge,
-                use_container_width=True
-            )
-
-        except Exception:
-
-            pass
+st.divider()
 
 
-# ============================================================
-# MODEL INFORMATION
-# ============================================================
-
-st.subheader(
-    "Model Information"
-)
-
-model_col1, model_col2 = st.columns(2)
-
-
-with model_col1:
-
-    st.write(
-        "**Prediction System:** "
-        "NLNG Predictive Maintenance"
-    )
-
-    st.write(
-        "**Primary Model:** Random Forest"
-    )
-
-
-with model_col2:
-
-    st.write(
-        "**Primary Target:** "
-        "Failure_Within_7d"
-    )
-
-    st.write(
-        "**Deployment API:** FastAPI"
-    )
-
-
-# ============================================================
-# SHAP FEATURE IMPORTANCE
-# ============================================================
-
-if shap_df is not None:
-
-    st.subheader(
-        "Model Explainability"
-    )
-
-    st.write(
-        "Feature importance from the model "
-        "explainability analysis."
-    )
-
-    st.dataframe(
-        shap_df,
-        use_container_width=True
-    )
-
-
-# ============================================================
+# =============================================================================
 # DECISION SUPPORT
-# ============================================================
+# =============================================================================
 
-st.subheader(
-    "Maintenance Decision Support"
-)
+st.subheader("💡 Predictive Maintenance Decision Support")
 
-if prediction is not None:
-
-    failure_probability = prediction.get(
-        "failure_probability_24h",
-        prediction.get(
-            "failure_probability",
-            None
-        )
-    )
-
-    if failure_probability is not None:
-
-        try:
-
-            probability = float(
-                failure_probability
-            )
-
-            if probability <= 1:
-
-                probability *= 100
-
-            if probability >= 70:
-
-                st.error(
-                    "HIGH RISK: Immediate maintenance "
-                    "inspection is recommended."
-                )
-
-            elif probability >= 40:
-
-                st.warning(
-                    "MEDIUM RISK: Schedule a maintenance "
-                    "inspection and closely monitor equipment."
-                )
-
-            else:
-
-                st.success(
-                    "LOW RISK: Continue normal monitoring "
-                    "and planned maintenance."
-                )
-
-        except Exception:
-
-            st.info(
-                "Review the equipment condition indicators "
-                "and maintenance history."
-            )
-
-    else:
-
-        st.info(
-            "Prediction risk is currently unavailable."
-        )
-
+if prediction is None:
+    st.info("Prediction API service endpoint inactive or running stand-alone visualizer mode.")
 else:
-
-    st.info(
-        "Connect to the prediction API to obtain "
-        "maintenance recommendations."
-    )
-
-
-# ============================================================
-# DATASET DIAGNOSTICS
-# ============================================================
-
-with st.sidebar.expander(
-    "Dataset Diagnostics"
-):
-
-    st.write(
-        f"Records: {len(df):,}"
-    )
-
-    st.write(
-        f"Equipment: "
-        f"{df['equipment_id'].nunique():,}"
-    )
-
-    if "train" in df.columns:
-
-        st.write(
-            f"Trains: {df['train'].nunique():,}"
+    if failure_risk == "CRITICAL":
+        st.error(
+            f"**CRITICAL RISK**\n\n"
+            f"{selected_asset} has a high predicted probability of failure within the defined 24-hour horizon.\n\n"
+            f"**Suggested decision-support action:**\n"
+            f"Prioritise engineering assessment and condition review."
+        )
+    elif failure_risk == "HIGH":
+        st.warning(
+            f"**HIGH RISK**\n\n"
+            f"{selected_asset} requires increased monitoring and maintenance review.\n\n"
+            f"**Suggested decision-support action:**\n"
+            f"Prioritise condition assessment and maintenance planning."
+        )
+    elif failure_risk == "MODERATE":
+        st.warning(
+            f"**MODERATE RISK**\n\n"
+            f"{selected_asset} shows elevated predicted failure risk.\n\n"
+            f"**Suggested decision-support action:**\n"
+            f"Review current condition indicators and continue focused monitoring."
+        )
+    else:
+        st.success(
+            f"**LOW RISK**\n\n"
+            f"{selected_asset} has a low predicted probability of failure within the defined 24-hour horizon.\n\n"
+            f"**Suggested decision-support action:**\n"
+            f"Continue normal condition monitoring."
         )
 
-    st.write(
-        "Date range:"
+    st.caption(
+        "The IDSS provides decision-support information. It does not automatically "
+        "initiate maintenance, shutdown, or plant-control actions."
     )
-
-    st.write(
-        f"{df['timestamp'].min()} → "
-        f"{df['timestamp'].max()}"
-    )
-
-    # Dataset size
-    dataset_size_mb = (
-        os.path.getsize(DATASET_PATH)
-        / (1024 * 1024)
-    )
-
-    st.write(
-        f"Dataset size: {dataset_size_mb:.1f} MB"
-    )
-
-
-# ============================================================
-# FOOTER
-# ============================================================
 
 st.divider()
 
 st.caption(
-    "NLNG Predictive Maintenance Analytics | "
-    "Equipment Failure Prediction and "
-    "Maintenance Decision Support"
+    "NLNG Predictive Maintenance IDSS | "
+    "Streamlit → Cloudflare R2 Worker / Render API → Pipeline 2.0 Models"
 )
-
