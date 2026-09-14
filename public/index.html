@@ -1,1 +1,281 @@
-<!DOCTYPE html><html><body>NLNG Predictive Maintenance API</body></html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NLNG Predictive Maintenance IDSS</title>
+    <!-- Plotly CDN for Charts -->
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <style>
+        :root {
+            --bg-dark: #0E1117;
+            --card-bg: #1E222D;
+            --border-color: #2A2E3D;
+            --accent-blue: #00D4FF;
+            --text-color: #E0E0E0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+        }
+
+        .header {
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 15px;
+            margin-bottom: 25px;
+        }
+
+        .header h1 {
+            margin: 0;
+            font-size: 24px;
+            color: #FFF;
+        }
+
+        .header p {
+            margin: 5px 0 0 0;
+            color: #A0A0A0;
+            font-size: 14px;
+        }
+
+        .controls {
+            display: flex;
+            gap: 15px;
+            background: var(--card-bg);
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            margin-bottom: 20px;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        label {
+            font-size: 12px;
+            color: #A0A0A0;
+            font-weight: 600;
+        }
+
+        select {
+            background: #14171F;
+            border: 1px solid var(--border-color);
+            color: #FFF;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 14px;
+            outline: none;
+        }
+
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .kpi-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            padding: 15px;
+            border-radius: 8px;
+        }
+
+        .kpi-label {
+            font-size: 12px;
+            color: #A0A0A0;
+            margin-bottom: 5px;
+        }
+
+        .kpi-value {
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--accent-blue);
+        }
+
+        .main-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 20px;
+        }
+
+        .chart-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            padding: 15px;
+            border-radius: 8px;
+            min-height: 380px;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+
+        .badge-low { background: rgba(0, 204, 150, 0.2); color: #00CC96; }
+        .badge-warning { background: rgba(255, 170, 0, 0.2); color: #FFAA00; }
+        .badge-critical { background: rgba(255, 75, 75, 0.2); color: #FF4B4B; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>🛡️ NLNG Predictive Maintenance IDSS</h1>
+        <p>Pipeline 2.0 Model-Serving and Maintenance Decision-Support Interface</p>
+    </div>
+
+    <!-- Controls -->
+    <div class="controls">
+        <div class="control-group">
+            <label for="trainSelect">LNG TRAIN</label>
+            <select id="trainSelect" onchange="onTrainChange()">
+                <option value="Train 1">Train 1</option>
+                <option value="Train 2">Train 2</option>
+            </select>
+        </div>
+        <div class="control-group">
+            <label for="assetSelect">EQUIPMENT</label>
+            <select id="assetSelect" onchange="fetchPrediction()">
+                <option value="EQP-101">EQP-101</option>
+                <option value="EQP-102">EQP-102</option>
+                <option value="EQP-103">EQP-103</option>
+            </select>
+        </div>
+    </div>
+
+    <!-- KPI Display Cards -->
+    <div class="kpi-grid">
+        <div class="kpi-card">
+            <div class="kpi-label">Equipment ID</div>
+            <div class="kpi-value" id="kpiAsset">--</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Facility</div>
+            <div class="kpi-value" id="kpiTrain">--</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">24h Failure Risk</div>
+            <div class="kpi-value" id="kpiRisk">--</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Estimated RUL</div>
+            <div class="kpi-value" id="kpiRul">--</div>
+        </div>
+    </div>
+
+    <!-- Main Visualizations -->
+    <div class="main-grid">
+        <div class="chart-card">
+            <div id="trendPlot" style="width:100%; height:360px;"></div>
+        </div>
+        <div class="chart-card">
+            <div id="gaugePlot" style="width:100%; height:280px;"></div>
+            <div id="statusBox" style="text-align:center;">
+                <span id="riskBadge" class="status-badge badge-low">Checking API Status...</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = "https://nlng-predictive-maintenance-api.onrender.com/predict";
+
+        async function fetchPrediction() {
+            const assetId = document.getElementById("assetSelect").value;
+            const trainId = document.getElementById("trainSelect").value;
+
+            document.getElementById("kpiAsset").innerText = assetId;
+            document.getElementById("kpiTrain").innerText = trainId;
+            document.getElementById("kpiRisk").innerText = "Loading...";
+            document.getElementById("kpiRul").innerText = "--";
+
+            // Asynchronous fetch call to your Render backend
+            try {
+                const response = await fetch(API_URL, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ equipment_id: assetId, train: trainId })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    const probPercent = (data.failure_probability_24h * 100).toFixed(2);
+                    
+                    document.getElementById("kpiRisk").innerText = `${probPercent}%`;
+                    document.getElementById("kpiRul").innerText = `${data.rul_days.toFixed(1)} Days`;
+                    
+                    renderGauge(probPercent);
+                    updateBadge(data.failure_risk);
+                } else {
+                    renderFallback("Standby Mode");
+                }
+            } catch (error) {
+                renderFallback("Offline / Visualizer Mode");
+            }
+        }
+
+        function renderGauge(val) {
+            const gaugeData = [{
+                type: "indicator",
+                mode: "gauge+number",
+                value: val,
+                number: { suffix: "%", font: { color: "#FFFFFF", size: 28 } },
+                gauge: {
+                    axis: { range: [0, 100], tickcolor: "#A0A0A0" },
+                    bar: { color: "#00D4FF" },
+                    bgcolor: "#14171F",
+                    bordercolor: "#2A2E3D",
+                    steps: [
+                        { range: [0, 15], color: "rgba(0, 204, 150, 0.3)" },
+                        { range: [15, 35], color: "rgba(255, 170, 0, 0.3)" },
+                        { range: [35, 100], color: "rgba(255, 75, 75, 0.3)" }
+                    ]
+                }
+            }];
+
+            const layout = {
+                paper_bgcolor: "#1E222D",
+                font: { color: "#E0E0E0" },
+                margin: { t: 20, b: 10, l: 20, r: 20 }
+            };
+
+            Plotly.newPlot('gaugePlot', gaugeData, layout);
+        }
+
+        function updateBadge(riskLevel) {
+            const badge = document.getElementById("riskBadge");
+            badge.innerText = `Risk Level: ${riskLevel}`;
+            if (riskLevel === "LOW") {
+                badge.className = "status-badge badge-low";
+            } else if (riskLevel === "CRITICAL" || riskLevel === "HIGH") {
+                badge.className = "status-badge badge-critical";
+            } else {
+                badge.className = "status-badge badge-warning";
+            }
+        }
+
+        function renderFallback(message) {
+            document.getElementById("kpiRisk").innerText = "N/A";
+            document.getElementById("riskBadge").innerText = message;
+            document.getElementById("riskBadge").className = "status-badge badge-warning";
+            renderGauge(0);
+        }
+
+        function onTrainChange() {
+            fetchPrediction();
+        }
+
+        // Initialize dashboard on page load
+        fetchPrediction();
+    </script>
+</body>
+</html>
