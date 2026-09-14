@@ -5,6 +5,35 @@ import joblib
 import pandas as pd
 import tensorflow as tf
 
+# Complete feature column schema matching your dataset pipeline
+FEATURE_COLUMNS = [
+    "Row_ID",
+    "Commission_Year",
+    "Asset_Age_Years",
+    "Hours_Since_Maint",
+    "Cumulative_Op_Hours",
+    "Bearing_Temperature",
+    "RPM",
+    "Vibration",
+    "Overall_Vibration",
+    "Motor_Current",
+    "Oil_Pressure",
+    "Oil_Particles_ppm",
+    "Bearing_Index",
+    "Discharge_Pressure",
+    "Feed_Gas_Pressure",
+    "LNG_Output_tph",
+    "Ambient_Temperature",
+    "Load_Factor",
+    "Wear_Level",
+    "Failure_Rate",
+    "Lubrication_Health_Index",
+    "Production_Efficiency",
+    "Quality_Factor",
+    "_Year"
+]
+
+
 class ModelService:
     def __init__(self):
         self.s3_client = None
@@ -35,7 +64,7 @@ class ModelService:
             )
 
     def load_artifacts_from_r2(self):
-        """Downloads ML/DL models and parquet dataset directly from R2."""
+        """Downloads ML/DL models and parquet dataset directly from Cloudflare R2."""
         if not self.s3_client:
             print("⚠️ Cloudflare R2 credentials missing. Skipped R2 load.")
             return
@@ -57,7 +86,7 @@ class ModelService:
                 Bucket=self.bucket_name, Key="stage_4_deep_learning/dl_classifier_mlp.keras"
             )
             mlp_bytes = io.BytesIO(mlp_obj['Body'].read())
-            # Save bytes temporarily or load directly via h5py/keras memory buffer
+            os.makedirs("/tmp", exist_ok=True)
             with open("/tmp/dl_classifier_mlp.keras", "wb") as f:
                 f.write(mlp_bytes.getvalue())
             self.mlp_classifier = tf.keras.models.load_model("/tmp/dl_classifier_mlp.keras")
@@ -92,5 +121,6 @@ class ModelService:
 
         except Exception as exc:
             print(f"❌ Error loading assets from Cloudflare R2: {exc}")
+
 
 model_service = ModelService()
