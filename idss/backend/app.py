@@ -1,7 +1,7 @@
 from typing import List
 
 from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware  # <-- ADDED IMPORT
+from fastapi.middleware.cors import CORSMiddleware
 
 from schemas.schemas import (
     PredictionRequest,
@@ -14,7 +14,6 @@ from services.model_service import (
     FEATURE_COLUMNS
 )
 
-
 app = FastAPI(
     title="NLNG Predictive Maintenance IDSS API",
     description=(
@@ -25,20 +24,26 @@ app = FastAPI(
 )
 
 # -------------------------------------------------------------
-# CORS MIDDLEWARE CONFIGURATION (Fixes Cloudflare Pages Fetch)
+# CORS MIDDLEWARE CONFIGURATION
 # -------------------------------------------------------------
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://nlng-idss-dashboard.pages.dev",  # Your Cloudflare Pages domain
+        "https://nlng-idss-dashboard.pages.dev",
         "http://localhost:8000",
         "http://127.0.0.1:8000",
-        "*"  # Allows all origins for public API access
+        "*"
     ],
     allow_credentials=True,
-    allow_methods=["*"],  # Allows OPTIONS, POST, GET, etc.
-    allow_headers=["*"],  # Allows Content-Type and custom headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+def startup_event():
+    """Trigger Cloudflare R2 model and dataset download at server boot."""
+    model_service.load_artifacts_from_r2()
 
 
 @app.get("/")
