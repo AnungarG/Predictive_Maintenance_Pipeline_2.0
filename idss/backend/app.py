@@ -1,7 +1,7 @@
-
 from typing import List
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware  # <-- ADDED IMPORT
 
 from schemas.schemas import (
     PredictionRequest,
@@ -22,6 +22,22 @@ app = FastAPI(
         "decision-support system."
     ),
     version="1.0.0"
+)
+
+# -------------------------------------------------------------
+# CORS MIDDLEWARE CONFIGURATION (Fixes Cloudflare Pages Fetch)
+# -------------------------------------------------------------
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://nlng-idss-dashboard.pages.dev",  # Your Cloudflare Pages domain
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        "*"  # Allows all origins for public API access
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows OPTIONS, POST, GET, etc.
+    allow_headers=["*"],  # Allows Content-Type and custom headers
 )
 
 
